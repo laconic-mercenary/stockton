@@ -1,0 +1,15 @@
+services:
+#  gateway:
+#    build:
+#      context: ../
+#      dockerfile: ./gateway/Dockerfile
+#    environment:
+#      - name=value
+  storage:
+    build: 
+      context: ../
+      dockerfile: ./storage/Dockerfile
+    environment:
+      - name=value
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
