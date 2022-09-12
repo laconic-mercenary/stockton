@@ -1,3 +1,4 @@
+version: '3'
 services:
 #  gateway:
 #    build:
@@ -6,10 +7,22 @@ services:
 #    environment:
 #      - name=value
   storage:
+    ports:
+      - "8090:80"
     build: 
-      context: ../
-      dockerfile: ./storage/Dockerfile
+      context: ../storage
+      dockerfile: Dockerfile
     environment:
-      - name=value
+      - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:7788/devstoreaccount1;"
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite
+    ports:
+      - "8095:80"
+    entrypoint: azurite-table 
+    command: 
+      - "-l"
+      - "/tmp"
+      - "--tablePort"
+      - "7788"
+      - "--tableHost"
+      - "0.0.0.0"

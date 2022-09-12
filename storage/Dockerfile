@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/azure-function/java:4.0-java11-build as build-stage
+FROM mcr.microsoft.com/azure-functions/java:4.0-java11-build as build-stage
 
 COPY . /src/java-function-app
 WORKDIR /src/java-function-app
@@ -8,7 +8,7 @@ RUN mvn clean package
 WORKDIR /src/java-function-app/target/azure-functions
 RUN cd $(ls -d */|head -n 1) && cp -a . /home/site/wwwroot
 
-FROM mcr.microsoft.com/azure-function/java:4.0-java11-appservice
+FROM mcr.microsoft.com/azure-functions/java:4-java11-appservice
 
 ENV AzureWebJobsScriptRoot=/home/site/wwwroot
 ENV AzureFunctionsJobHost__Logging__Console__IsEnabled=true
