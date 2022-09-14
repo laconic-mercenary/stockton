@@ -1,11 +1,16 @@
 version: '3'
 services:
-#  gateway:
-#    build:
-#      context: ../
-#      dockerfile: ./gateway/Dockerfile
-#    environment:
-#      - name=value
+  gateway:
+    ports:
+      - "8080:8080"
+    build:
+      context: ../gateway
+      dockerfile: Dockerfile
+    environment:
+      LOGGING_LEVEL: "debug"
+      AUTHORIZATION_TOKEN: "ALLOW"
+      STORAGE_ADDRESS: "http://storage:80/api/signals"
+      STORAGE_TOKEN: "ok"
   storage:
     ports:
       - "8090:80"
@@ -13,16 +18,5 @@ services:
       context: ../storage
       dockerfile: Dockerfile
     environment:
-      - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:7788/devstoreaccount1;"
-  azurite:
-    image: mcr.microsoft.com/azure-storage/azurite
-    ports:
-      - "8095:80"
-    entrypoint: azurite-table 
-    command: 
-      - "-l"
-      - "/tmp"
-      - "--tablePort"
-      - "7788"
-      - "--tableHost"
-      - "0.0.0.0"
+      - "SIGNAL_EXPIRY=30"
+      - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://host.docker.internal:7788/devstoreaccount1;"

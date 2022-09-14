@@ -59,11 +59,15 @@ func handlePost(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, "server error", http.StatusInternalServerError)
 		return
 	}
-	// log.Debug().Int("length", len(data)).RawJSON("json", data).Msg("request json")
 	var signal signals.SignalEvent
 	if signal, err = signals.ParseSignal(data); err != nil {
 		log.Warn().RawJSON("data", data).Msg("user provided invalid json")
 		http.Error(writer, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err = signals.Store(signal); err != nil {
+		log.Error().Err(err).Msg("failed to store signal")
+		http.Error(writer, "server error", http.StatusInternalServerError)
 		return
 	}
 	responseData, _ := signals.SignalToData(signal)

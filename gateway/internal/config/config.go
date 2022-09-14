@@ -13,6 +13,8 @@ const (
 	envFunctionsCustomHandlerPort = "FUNCTIONS_CUSTOMHANDLER_PORT"
 	envLoggingLevel               = "LOGGING_LEVEL"
 	envAuthorizationToken         = "AUTHORIZATION_TOKEN"
+	envStorageAddress             = "STORAGE_ADDRESS"
+	envStorageToken               = "STORAGE_TOKEN"
 )
 
 func ServerAddress() string {
@@ -42,9 +44,21 @@ func LoggingLevel() zerolog.Level {
 }
 
 func AuthorizationToken() string {
-	if val, ok := os.LookupEnv(envAuthorizationToken); ok {
+	return lookupOrFail(envAuthorizationToken)
+}
+
+func StorageAddress() string {
+	return lookupOrFail(envStorageAddress)
+}
+
+func StorageToken() string {
+	return lookupOrFail(envStorageToken)
+}
+
+func lookupOrFail(env string) string {
+	if val, ok := os.LookupEnv(env); ok {
 		return val
 	}
-	log.Fatal().Err(errors.New("authorization token is required - even if empty")).Msg("required env var missing")
+	log.Fatal().Err(errors.New("missing env var: " + env)).Msg("required env var missing")
 	return ""
 }

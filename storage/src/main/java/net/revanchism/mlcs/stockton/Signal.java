@@ -2,14 +2,6 @@ package net.revanchism.mlcs.stockton;
 
 import java.io.Serializable;
 
-import javax.validation.constraints.DecimalMax;
-import javax.validation.constraints.DecimalMin;
-import javax.validation.constraints.Max;
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotEmpty;
-import javax.validation.constraints.Pattern;
-import javax.validation.constraints.Size;
-
 import org.apache.commons.lang3.builder.CompareToBuilder;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
@@ -18,13 +10,21 @@ import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
 public final class Signal implements Serializable, Comparable<Signal> {
     
-    @NotEmpty
+    @NotEmpty(message = "ticker must not be empty")
     @Size(min = 1, max = 50)
     private String ticker;
 
-    @NotEmpty
+    @NotEmpty(message = "action must not be empty")
     @Pattern(regexp = "(sell|buy)", message = "action must be either 'buy' or 'sell'")
     private String action;
 
@@ -36,26 +36,36 @@ public final class Signal implements Serializable, Comparable<Signal> {
     @Max(value = 99999)
     private int contracts;
 
-    private String PartitionKey;
+    @Size(min = 0, max = 500)
+    private String notes;
 
-    private String RowKey;
+    private String partitionKey;
 
-    private long timestamp;
+    private String rowKey;
 
-    public void setPartitionKey(String partitionKey) {
-        PartitionKey = partitionKey;
+    public void setPartitionKey(final String partitionKey) {
+        this.partitionKey = partitionKey;
     }
 
     public String getPartitionKey() {
-        return PartitionKey;
+        return partitionKey;
     }
 
-    public void setRowKey(String rowKey) {
-        RowKey = rowKey;
+    public void setRowKey(final String rowKey) {
+        this.rowKey = rowKey;
     }
 
     public String getRowKey() {
-        return RowKey;
+        return rowKey;
+    }
+
+    public void setNotes(final String notes) {
+        this.notes = notes;
+    }
+
+    @JsonGetter("notes")
+    public String getNotes() {
+        return notes;
     }
 
     @JsonGetter("ticker")
@@ -85,7 +95,7 @@ public final class Signal implements Serializable, Comparable<Signal> {
         this.close = close;
     }
 
-    @JsonGetter("contracts_count")
+    @JsonGetter("contracts")
     public int getContracts() {
         return contracts;
     }
@@ -94,30 +104,23 @@ public final class Signal implements Serializable, Comparable<Signal> {
         this.contracts = contracts;
     }
 
-    public void setTimestamp(long timestamp) {
-        this.timestamp = timestamp;
-    }
-
-    @JsonGetter("timestamp")
-    public long getTimestamp() {
-        return timestamp;
-    }
-
     @Override
     public String toString() {
         try { return new ObjectMapper().writeValueAsString(this); }
-        catch (JsonProcessingException ex) { throw new RuntimeException(ex); }
+        catch (final JsonProcessingException ex) { throw new RuntimeException(ex); }
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(final Object obj) {
         if (obj instanceof Signal) {
             final Signal source = (Signal)obj;
             return new EqualsBuilder().append(getClose(), source.getClose())
                                       .append(getContracts(), source.getContracts())
                                       .append(getAction(), source.getAction())
                                       .append(getTicker(), source.getTicker())
-                                      .append(getTimestamp(), source.getTimestamp())
+                                      .append(getNotes(), source.getNotes())
+                                      .append(getPartitionKey(), source.getPartitionKey())
+                                      .append(getRowKey(), source.getRowKey())
                                       .isEquals();
         }
         return false;
@@ -129,13 +132,15 @@ public final class Signal implements Serializable, Comparable<Signal> {
                                     .append(getClose())
                                     .append(getAction())
                                     .append(getTicker())
-                                    .append(getTimestamp())
+                                    .append(getNotes())
+                                    .append(getPartitionKey())
+                                    .append(getRowKey())
                                     .toHashCode();
     }
 
     @Override
-    public int compareTo(Signal o) {
-        return new CompareToBuilder().append(getTimestamp(), o.getTimestamp())
+    public int compareTo(final Signal o) {
+        return new CompareToBuilder().append(getRowKey(), o.getRowKey())
                                      .toComparison();
     }
 }
