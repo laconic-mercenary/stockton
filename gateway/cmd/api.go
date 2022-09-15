@@ -10,12 +10,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func initLogging() {
-	zerolog.SetGlobalLevel(config.LoggingLevel())
-}
-
 func main() {
-	initLogging()
+	zerolog.SetGlobalLevel(config.LoggingLevel())
 	http.HandleFunc("/api/gateway", internal.Gateway)
 	log.Fatal().Err(http.ListenAndServe(config.ServerAddress(), nil)).Msg("finished")
 }

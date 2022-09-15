@@ -9,7 +9,17 @@ public final class Config {
 
     private static final String ENV_SIGNAL_EXPIRY = "SIGNAL_EXPIRY";
 
+    private static final String ENV_USE_STUBBED_STORAGE = "USE_STUBBED_STORAGE";
+
     private static final String ENV_SIGNALS_TABLE_CONNSTR = "SignalsStorageConnectionString";
+
+    public static boolean useStubbedStorage() {
+        final String useStubbedStorage = System.getenv(ENV_USE_STUBBED_STORAGE);
+        if (StringUtils.isNotEmpty(useStubbedStorage)) {
+            return Boolean.valueOf(useStubbedStorage);
+        }
+        return false;
+    }
     
     public static long getSignalExpiryDays() {
         final String expiry = getEnv(ENV_SIGNAL_EXPIRY);

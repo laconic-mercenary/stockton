@@ -7,8 +7,11 @@ services:
       context: ../gateway
       dockerfile: Dockerfile
     environment:
+      LOG_REQUESTS: "true"
+      REQUIRE_SIGNAL_KEY: "true"
+      ALLOWED_ORIGIN: "*"
       LOGGING_LEVEL: "debug"
-      AUTHORIZATION_TOKEN: "ALLOW"
+      AUTHORIZATION_TOKEN: "test-0QEmRXHwkp4sRXLTKpJLE3RQFTS01xk8"
       STORAGE_ADDRESS: "http://storage:80/api/signals"
       STORAGE_TOKEN: "ok"
   storage:
@@ -19,4 +22,5 @@ services:
       dockerfile: Dockerfile
     environment:
       - "SIGNAL_EXPIRY=30"
+      - "USE_STUBBED_STORAGE=true"
       - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://host.docker.internal:7788/devstoreaccount1;"

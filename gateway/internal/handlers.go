@@ -1,8 +1,10 @@
 package internal
 
 import (
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 
 	"github.com/stockton/internal/config"
@@ -13,11 +15,14 @@ import (
 
 const (
 	headerContentType = "Content-Type"
+	headerOrigin      = "Origin"
+	headerAuthToken   = "X-Gateway-Allow-Token"
 	contentTypeJson   = "application/json"
 )
 
 func Gateway(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("Gateway")
+	debugLogRequest(request)
 	if !isAuthorized(request) {
 		log.Warn().Msg("user not authorized")
 		http.Error(writer, "not authorized", http.StatusUnauthorized)
@@ -29,24 +34,80 @@ func Gateway(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	log.Warn().Str("method", request.Method).Msg("method not allowed")
-	http.Error(writer, "not allowed", http.StatusMethodNotAllowed)
+	http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+}
+
+func debugLogRequest(request *http.Request) {
+	if !config.LogRequests() {
+		return
+	}
+	data, err := httputil.DumpRequest(request, true)
+	if err != nil {
+		log.Error().Err(err).Msg("error in dumping request")
+		return
+	}
+	log.Info().Bytes("request", data).Msg("logged-request")
+}
+
+func isOriginAllowed(request *http.Request) bool {
+	log.Debug().Msg("checking origin host...")
+	allowedDomain, allowAny := config.AllowedOrigin()
+	if !allowAny {
+		hosts, ok := request.Header[headerOrigin]
+		if !ok {
+			log.Warn().Msg(fmt.Sprintf("%s header not found in request", headerOrigin))
+			return false
+		}
+		allowedOrigin := strings.Replace(allowedDomain, "*", "", 1)
+		for i := 0; i < len(hosts); i++ {
+			log.Debug().Str("host", hosts[i]).Msg("checking allowed host...")
+			if !strings.HasSuffix(hosts[i], allowedOrigin) {
+				log.Warn().Str("host", hosts[i]).Msg("host failed origin allow check")
+				return false
+			}
+		}
+	} else {
+		log.Warn().Msg("all origins are allowed - please confirm configuration")
+	}
+	return true
+}
+
+func isAuthHeaderAllowed(request *http.Request) bool {
+	log.Debug().Msg("checking auth token in header...")
+	if config.RequireSignalKey() {
+		log.Debug().Msg("will use signal key instead of auth header for auth")
+		return true
+	}
+	secureToken, allowAll := config.AuthenticationToken()
+	if !allowAll {
+		auth, ok := request.Header[headerAuthToken]
+		if !ok {
+			log.Warn().Msg(fmt.Sprintf("%s header not found in request - denied", headerAuthToken))
+			return false
+		}
+		if len(auth) != 1 {
+			log.Warn().Strs("auth_values", auth).Msg("multiple auth headers specified - denied")
+			return false
+		}
+		userProvidedToken := auth[0]
+		log.Debug().Str("token", userProvidedToken).Msg("user token info")
+		return (secureToken == userProvidedToken)
+	} else {
+		log.Warn().Msg("all origins are allowed - please confirm configuration")
+	}
+	return true
 }
 
 func isAuthorized(request *http.Request) bool {
 	log.Trace().Msg("isAuthorized")
-	secureToken := config.AuthorizationToken()
-	if strings.Compare(secureToken, "ALLOW") == 0 {
-		return true
+	return (isAuthHeaderAllowed(request) && isOriginAllowed(request))
+}
+
+func isObjectAuthorized(signal signals.SignalEvent) bool {
+	if secureToken, allowAll := config.AuthenticationToken(); !allowAll && config.RequireSignalKey() {
+		return (secureToken == signal.Key)
 	}
-	if auth, ok := request.Header["XX-allow-token"]; ok {
-		log.Debug().Msg("token provided")
-		if len(auth) == 1 {
-			userProvidedToken := auth[0]
-			log.Debug().Str("token", userProvidedToken).Msg("user token info")
-			return (strings.Compare(secureToken, userProvidedToken) == 0)
-		}
-	}
-	return false
+	return true
 }
 
 func handlePost(writer http.ResponseWriter, request *http.Request) {
@@ -56,22 +117,27 @@ func handlePost(writer http.ResponseWriter, request *http.Request) {
 	defer request.Body.Close()
 	if data, err = io.ReadAll(request.Body); err != nil {
 		log.Error().Err(err).Msg("error on reading request.Body")
-		http.Error(writer, "server error", http.StatusInternalServerError)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	var signal signals.SignalEvent
 	if signal, err = signals.ParseSignal(data); err != nil {
 		log.Warn().RawJSON("data", data).Msg("user provided invalid json")
-		http.Error(writer, "bad request", http.StatusBadRequest)
+		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	if !isObjectAuthorized(signal) {
+		log.Warn().Str("key", signal.Key).Msg("invalid signal key provided")
+		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 	if err = signals.Store(signal); err != nil {
 		log.Error().Err(err).Msg("failed to store signal")
-		http.Error(writer, "server error", http.StatusInternalServerError)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	responseData, _ := signals.SignalToData(signal)
-	log.Info().RawJSON("response", responseData).Msg("response OK")
+	log.Info().RawJSON("signal", responseData).Msg("store signal succeeded")
 	writer.Header().Add(headerContentType, contentTypeJson)
 	writer.WriteHeader(http.StatusOK)
 	writer.Write(responseData)
@@ -80,8 +146,8 @@ func handlePost(writer http.ResponseWriter, request *http.Request) {
 func handleGet(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("handleGet")
 	//name := request.URL.Query().Get("name")
-	// http.NotFound(writer, request)
-	http.StatusText(http.StatusOK)
+	writer.WriteHeader(http.StatusOK)
+	writer.Write([]byte(http.StatusText(http.StatusOK)))
 }
 
 func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request) {

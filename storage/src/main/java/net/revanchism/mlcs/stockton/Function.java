@@ -126,7 +126,11 @@ public class Function {
         newSignal.setTicker(requestSignal.getTicker());
         newSignal.setNotes(requestSignal.getNotes());
 
-        outputSignal.setValue(newSignal);
+        if (Config.useStubbedStorage()) {
+            logger.warning("using stubbed storage - will not store the new signal");
+        } else {
+            outputSignal.setValue(newSignal);
+        }
 
         logger.info("new signal stored: " + newSignal.toString());
 
@@ -146,11 +150,19 @@ public class Function {
             }
             return false;    
         }
-        if (!StringUtils.isAlphanumeric(partitionKey) || partitionKey.isEmpty()) {
+        if (partitionKey.length() > Byte.MAX_VALUE) {
+            logger.warning("partitionKey is too long");
+            return false;
+        }
+        if (rowKey.length() > Byte.MAX_VALUE) {
+            logger.warning("rowKey is too long");
+            return false;
+        }
+        if (partitionKey.isEmpty() || !StringUtils.isAlphanumeric(partitionKey)) {
             logger.warning("invalid partitionKey: " + partitionKey);
             return false;
         }
-        if (!StringUtils.isAlphanumeric(rowKey) || rowKey.isEmpty()) {
+        if (rowKey.isEmpty() || !StringUtils.isAlphanumeric(rowKey)) {
             logger.warning("invalid rowKey: " + rowKey);
             return false;
         }

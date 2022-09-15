@@ -11,6 +11,7 @@ type SignalEvent struct {
 	Action         string  `json:"action" validate:"oneof=buy sell"`
 	Close          float64 `json:"close" validate:"gt=0.0,lt=9999999.99"`
 	ContractsCount int     `json:"contracts" validate:"gte=1,lte=999"`
+	Key            string  `json:"key,omitempty"`
 }
 
 func ParseSignal(data []byte) (SignalEvent, error) {
