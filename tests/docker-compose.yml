@@ -1,5 +1,11 @@
 version: '3'
 services:
+  openapiui:
+    image: swaggerapi/swagger-ui:v4.14.0
+    volumes:
+      - ./../gateway/openapi/spec.json:/app/swagger.json
+    ports:
+      - "8095:8080"
   gateway:
     ports:
       - "8080:8080"
@@ -11,7 +17,7 @@ services:
       REQUIRE_SIGNAL_KEY: "true"
       ALLOWED_ORIGIN: "*"
       LOGGING_LEVEL: "debug"
-      AUTHORIZATION_TOKEN: "test-0QEmRXHwkp4sRXLTKpJLE3RQFTS01xk8"
+      AUTHORIZATION_TOKEN: "string"
       STORAGE_ADDRESS: "http://storage:80/api/signals"
       STORAGE_TOKEN: "ok"
   storage:

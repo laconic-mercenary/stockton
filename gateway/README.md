@@ -44,7 +44,9 @@ docker run gateway:local
 docker-compose up --build
 ```
 
-3. Check the [README](./../tests/README.md) and execute some test requests
+3a. Check the [README](./../tests/README.md) and execute some test requests
+
+3b. Check the OpenAPI UI to send test requests at http://localhost:8095
 
 ## Install
 

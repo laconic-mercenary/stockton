@@ -1,0 +1,144 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+       "title": "Stockton API - Gateway",
+       "description": "Stores signals from trading view - also fetches them from storage.",
+       "version": 0.1
+    },
+    "servers": [
+      {
+         "url": "http://localhost:8080",
+         "description": "Local docker-compose server"
+      },
+      {
+         "url": "http://api.example.com/v1",
+         "description": "Optional server description, e.g. Main (production) server"
+      }
+    ],
+    "paths": {
+       "/api/gateway": {
+          "post": {
+             "summary": "Stores a signal object from Trading View.",
+             "description": "API that receives signal POST requests from Trading View and stores them for later analysis.",
+             "requestBody": {
+                "required": true,
+                "content": {
+                   "application/json": {
+                      "schema": {
+                        "$ref": "#/components/schemas/SignalEvent"
+                      },
+                      "examples": {
+                        "signal-1-buy": {
+                           "action": "buy",
+                           "ticker": "TSLA",
+                           "close": 250.67,
+                           "contracts": 5,
+                           "key": "test-0QEmRXHwkp4sRXLTKpJLE3RQFTS01xk8"
+                        },
+                        "signal-2-sell": {
+                           "action": "sell",
+                           "ticker": "TSLA",
+                           "close": 261.23,
+                           "contracts": 5,
+                           "key": "test-0QEmRXHwkp4sRXLTKpJLE3RQFTS01xk8"
+                        }
+                      }
+                   }
+                }
+             },
+             "responses": {
+                "200": {
+                   "description": "The signal that was stored - as JSON",
+                   "content": {
+                      "application/json": {
+                         "schema": {
+                            "$ref": "#/components/schemas/SignalEvent"
+                         }
+                      }
+                   }
+                },
+                "400": {
+                   "description": "If server received a malformed request.",
+                   "content": {
+                      "text/plain": {
+                         "schema": {
+                            "type": "string",
+                            "example": "bad request"
+                         }
+                      }
+                   }
+                },
+                "401": {
+                   "description": "If key parameter is invalid.",
+                   "content": {
+                      "text/plain": {
+                         "schema": {
+                            "type": "string",
+                            "example": "not authorized"
+                         }
+                      }
+                   }
+                },
+                "5XX": {
+                   "description": "If an unexpected server error happens.",
+                   "content": {
+                      "text/plain": {
+                         "schema": {
+                            "type": "string",
+                            "example": "server error"
+                         }
+                      }
+                   }
+                }
+             }
+          }
+       }
+    },
+    "components": {
+       "schemas": {
+          "SignalEvent": {
+             "title": "A Signal Event coming from Trading View",
+             "type": "object",
+             "properties": {
+                "ticker": {
+                   "type": "string",
+                   "description": "The ticker, stock symbol, crypto currency ID - usually prefixed with the exchange name."
+                },
+                "action": {
+                   "type": "string",
+                   "description": "The type of order execution - can only be buy or sell",
+                   "enum": [
+                      "buy",
+                      "sell"
+                   ]
+                },
+                "close": {
+                   "type": "number",
+                   "format": "float",
+                   "minimum": 0.0,
+                   "maximum": 9999.99,
+                   "description": "The closing price."
+                },
+                "contracts": {
+                   "type": "integer",
+                   "format": "int32",
+                   "minimum": 1,
+                   "maximum": 9999,
+                   "description": "The number of contracts (usually shared) operated on."
+                },
+                "key": {
+                   "type": "string",
+                   "description": "Authorization key in the payload - because webhooks from trading view don't support auth headers."
+                }
+             },
+             "required": [
+                "ticker",
+                "action",
+                "close",
+                "contracts",
+                "key"
+             ]
+          }
+       }
+    }
+ }

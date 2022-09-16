@@ -122,7 +122,7 @@ func handlePost(writer http.ResponseWriter, request *http.Request) {
 	}
 	var signal signals.SignalEvent
 	if signal, err = signals.ParseSignal(data); err != nil {
-		log.Warn().RawJSON("data", data).Msg("user provided invalid json")
+		log.Warn().RawJSON("data", data).Err(err).Msg("user provided invalid json")
 		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
