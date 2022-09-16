@@ -4,7 +4,7 @@ Request gateway before reaching other functions in stockton.
 
 # PREREQUISITES
 
-## Install
+## Installation Requirements
 * golang v1.19+
 * Azure Core Functions 
 
@@ -12,63 +12,87 @@ Request gateway before reaching other functions in stockton.
 
 ## Build 
 
+* Build the executeable with go 
 ```bash
 go build cmd/api.go
 ```
 
+* Build with Docker
+```bash
+docker build .
+```
+
 ## Run Locally
 
+### Azure Functions Core Runtime
 ```bash
 func start
 ```
 
-## Deploy
+### Docker
+```bash
+docker build . -t=gateway:local
+docker run gateway:local
+```
 
-### login
+### Docker E2E Test
+
+1. CD to ```tests``` directory
+
+2. Run docker-compose
+```bash
+docker-compose up --build
+```
+
+3. Check the [README](./../tests/README.md) and execute some test requests
+
+## Install
+
+1. login
 ```bash
 az login
 ```
 
-### list subscriptions
+2. list subscriptions
 ```bash
 az account list -o table
 ```
 
-### set active subscription
+3. set active subscription
 ```bash
 az account set --subscription <SUBSCRIPTION_ID>
 ```
 
-### create an Azure Resource Group 
+4. create an Azure Resource Group 
 ```bash
-az group create -n stockton-jpe-resources01 -l japaneast
+az group create -n stockton-jpe01 -l japaneast
 ```
 
-### create an Azure Storage Account (required for Azure Functions App)
+5. create an Azure Storage Account (required for Azure Functions App)
 ```bash
-az storage account create -n stockton-gateway-jpe-storage01 -g stockton-jpe-resources01 -l japaneast
+az storage account create -n stockton-jpe01-gateway -g stockton-jpe01 -l japaneast
 ```
 
-### create an Azure Functions App
+6. create an Azure Functions App
 ```bash
-az functionapp create -n stockton-gateway-jpe01 \
-  -g stockton-jpe-resources01 \
+az functionapp create -n stockton-jpe01-gateway \
+  -g stockton-jpe01 \
   --consumption-plan-location japaneast \
   --os-type Linux \
   --runtime custom \
   --functions-version 4 \
-  --storage-account stockton-gateway-jpe-storage01
+  --storage-account stockton-jpe01-gateway
 ```
 
-### build for linux
+7. build for linux
 ```bash
 GOOS=linux GOARCH=amd64 go build cmd/api.go
 ```
 
-### publish the function
+8. publish the function
 
 ```bash
-func azure functionapp publish stockton-gateway-jpe01
+func azure functionapp publish stockton-jpe01-gateway
 ```
 
 # NEW PROJECT
