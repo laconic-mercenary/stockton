@@ -25,7 +25,7 @@ func Store(signal SignalEvent) error {
 	sanitize(&signal)
 	signalJson, _ := json.Marshal(signal)
 	signalBytes := bytes.NewReader(signalJson)
-	req, err := http.NewRequest(storageRequestMethod, getStorageTarget(signal.Ticker), signalBytes)
+	req, err := http.NewRequest(storageRequestMethod, makeStorageURL(signal.Ticker), signalBytes)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func sanitize(signal *SignalEvent) {
 	signal.Key = ""
 }
 
-func getStorageTarget(ticker string) string {
+func makeStorageURL(ticker string) string {
 	log.Trace().Msg("getStorageTarget")
 	baseAddr := config.StorageAddress()
 	partitionKey := ticker

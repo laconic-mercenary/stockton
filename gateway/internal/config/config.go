@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -19,10 +18,15 @@ const (
 	envRequireSignalKey           = "REQUIRE_SIGNAL_KEY"
 	envStorageAddress             = "STORAGE_ADDRESS"
 	envStorageToken               = "STORAGE_TOKEN"
+	allowAllToken                 = "ALLOW"
+	allowAnyOrigin                = "*"
 )
 
 func ServerAddress() string {
 	if val, ok := os.LookupEnv(envFunctionsCustomHandlerPort); ok {
+		if _, err := strconv.ParseUint(val, 10, 32); err != nil {
+			log.Fatal().Err(err).Msg("port number must be an unsigned integer")
+		}
 		return ":" + val
 	}
 	return ":8080"
@@ -51,6 +55,7 @@ func RequireSignalKey() bool {
 }
 
 func LoggingLevel() zerolog.Level {
+	defaultLevel := zerolog.InfoLevel
 	if val, ok := os.LookupEnv(envLoggingLevel); ok {
 		level := strings.ToUpper(val)
 		switch {
@@ -64,6 +69,8 @@ func LoggingLevel() zerolog.Level {
 			return zerolog.TraceLevel
 		case level == "OFF":
 			return zerolog.Disabled
+		default:
+			log.Warn().Str("level", val).Str("default", defaultLevel.String()).Msg("unknown log level, will use default")
 		}
 	}
 	return zerolog.InfoLevel
@@ -71,13 +78,13 @@ func LoggingLevel() zerolog.Level {
 
 func AuthenticationToken() (token string, allowAll bool) {
 	token = lookupOrFail(envAuthorizationToken)
-	allowAll = (token == "ALLOW")
+	allowAll = (token == allowAllToken)
 	return
 }
 
 func AllowedOrigin() (domain string, allowAny bool) {
 	domain = lookupOrFail(envAllowedOrigin)
-	allowAny = (domain == "*")
+	allowAny = (domain == allowAnyOrigin)
 	return
 }
 
@@ -90,9 +97,9 @@ func StorageToken() string {
 }
 
 func lookupOrFail(env string) string {
-	if val, ok := os.LookupEnv(env); ok {
-		return val
+	val, ok := os.LookupEnv(env)
+	if !ok {
+		log.Fatal().Str("env_var", env).Msg("required env var missing")
 	}
-	log.Fatal().Err(errors.New("missing env var: " + env)).Msg("required env var missing")
-	return ""
+	return val
 }

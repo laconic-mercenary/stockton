@@ -10,7 +10,7 @@ type SignalEvent struct {
 	Ticker         string  `json:"ticker" validate:"required"`
 	Action         string  `json:"action" validate:"oneof=buy sell"`
 	Close          float64 `json:"close" validate:"gt=0.0,lt=9999999.99"`
-	ContractsCount int     `json:"contracts" validate:"gte=1,lte=999"`
+	ContractsCount int     `json:"contracts" validate:"gte=1,lte=9999"`
 	Key            string  `json:"key,omitempty"`
 }
 

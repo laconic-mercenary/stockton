@@ -22,35 +22,34 @@ const (
 
 func Gateway(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("Gateway")
-	debugLogRequest(request)
+	logRequest(request)
 	if !isAuthorized(request) {
-		log.Warn().Msg("user not authorized")
-		http.Error(writer, "not authorized", http.StatusUnauthorized)
+		log.Warn().Msg("request not authorized")
+		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
-	ops := allowedOperations()
-	if op, ok := ops[request.Method]; ok {
-		op(writer, request)
+	op, ok := allowedOperations()[request.Method]
+	if !ok {
+		log.Warn().Str("method", request.Method).Msg("method not allowed")
+		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	log.Warn().Str("method", request.Method).Msg("method not allowed")
-	http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	op(writer, request)
 }
 
-func debugLogRequest(request *http.Request) {
-	if !config.LogRequests() {
-		return
+func logRequest(request *http.Request) {
+	if config.LogRequests() {
+		data, err := httputil.DumpRequest(request, true)
+		if err != nil {
+			log.Error().Err(err).Msg("error in dumping request")
+		} else {
+			log.Info().Bytes("request", data).Msg("logged-request")
+		}
 	}
-	data, err := httputil.DumpRequest(request, true)
-	if err != nil {
-		log.Error().Err(err).Msg("error in dumping request")
-		return
-	}
-	log.Info().Bytes("request", data).Msg("logged-request")
 }
 
 func isOriginAllowed(request *http.Request) bool {
-	log.Debug().Msg("checking origin host...")
+	log.Debug().Msg("checking origin...")
 	allowedDomain, allowAny := config.AllowedOrigin()
 	if !allowAny {
 		hosts, ok := request.Header[headerOrigin]
@@ -75,6 +74,7 @@ func isOriginAllowed(request *http.Request) bool {
 func isAuthHeaderAllowed(request *http.Request) bool {
 	log.Debug().Msg("checking auth token in header...")
 	if config.RequireSignalKey() {
+		// TODO - consider cleaner approach
 		log.Debug().Msg("will use signal key instead of auth header for auth")
 		return true
 	}
