@@ -1,8 +1,25 @@
 {
   "version": "2.0",
   "functionTimeout": "00:00:15",
+  "logging": {
+    "logLevel": {
+      "Function.stockton-store-signal": "Information",
+      "Function.stockton-delete-old-signals": "Information",
+      "Function.stockton-get-signals": "Warning",
+      "default": "Error"
+    },
+    "applicationInsights": {
+      "enableLiveMetrics": true,
+      "enableDependencyTracking": false,
+      "enablePerformanceCountersCollection": false,
+      "samplingSettings": {
+        "isEnabled": false,
+        "excludedTypes": "Request"
+      }
+    }
+  },
   "extensionBundle": {
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
-    "version": "[2.*, 3.0.0)"
+    "version": "[3.*, 4.0.0)"
   }
 }

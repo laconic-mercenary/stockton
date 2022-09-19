@@ -37,22 +37,29 @@ public class Function {
                                                 final ExecutionContext context)
     {
         final Logger logger = context.getLogger();
-        final String connectionString = Config.getSignalsTableConnectionString();
-        final TableClient client =  new TableClientBuilder().connectionString(connectionString)
-                                                            .tableName("signals")
-                                                            .buildClient();
-        final long expiry = (System.currentTimeMillis() - Config.getSignalExpiryDays());
-        logger.info("deleting signals older than " + expiry);
-        final String filter = String.format("RowKey le '%s'", expiry);
-        final ListEntitiesOptions options = new ListEntitiesOptions().setFilter(filter);
+        final long current = System.currentTimeMillis();
+        final long expiry = (current - Config.getSignalExpiryDays());
         final AtomicInteger counter = new AtomicInteger(0);
-        client.listEntities(options, null, null)
-              .stream()
-              .forEach(entity -> { 
-                logger.fine(String.format("removing %s - %s", entity.getPartitionKey(), entity.getRowKey()));
-                client.deleteEntity(entity.getPartitionKey(), entity.getRowKey()); 
-                counter.incrementAndGet();
-              });
+
+        logger.info(String.format("deleting signals older than %d, current is %d", expiry, current));
+        
+        if (Config.useStubbedStorage()) {
+            logger.warning("using stubbed storage - will not delete any signals");
+        } else {
+            final String connectionString = Config.getSignalsTableConnectionString();
+            final TableClient client =  new TableClientBuilder().connectionString(connectionString)
+                                                                .tableName("signals")
+                                                                .buildClient();
+            final String filter = String.format("RowKey le '%s'", expiry);
+            final ListEntitiesOptions options = new ListEntitiesOptions().setFilter(filter);
+            client.listEntities(options, null, null)
+                .stream()
+                .forEach(entity -> { 
+                    logger.fine(String.format("removing %s - %s", entity.getPartitionKey(), entity.getRowKey()));
+                    client.deleteEntity(entity.getPartitionKey(), entity.getRowKey()); 
+                    counter.incrementAndGet();
+                });
+        }
         return request.createResponseBuilder(HttpStatus.OK).body(String.format("deleted %d signals", counter.get())).build();
     }
 

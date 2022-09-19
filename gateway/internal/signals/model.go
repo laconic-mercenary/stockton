@@ -23,6 +23,25 @@ func ParseSignal(data []byte) (SignalEvent, error) {
 	return event, validator.New().Struct(event)
 }
 
+func ParseSignals(data []byte) ([]SignalEvent, error) {
+	var err error
+	events := make([]SignalEvent, 0)
+	if err = json.Unmarshal(data, &events); err != nil {
+		return nil, err
+	}
+	signalValidator := validator.New()
+	for i := 0; i < len(events); i++ {
+		if err = signalValidator.Struct(events[i]); err != nil {
+			return nil, err
+		}
+	}
+	return events, nil
+}
+
 func SignalToData(signal SignalEvent) ([]byte, error) {
 	return json.Marshal(signal)
+}
+
+func SignalsToData(signals []SignalEvent) ([]byte, error) {
+	return json.Marshal(signals)
 }

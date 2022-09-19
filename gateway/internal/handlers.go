@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"regexp"
 	"strings"
 
 	"github.com/stockton/internal/config"
@@ -18,7 +19,10 @@ const (
 	headerOrigin      = "Origin"
 	headerAuthToken   = "X-Gateway-Allow-Token"
 	contentTypeJson   = "application/json"
+	contentTypeText   = "text/plain"
 )
+
+var validTicker = regexp.MustCompile(`^[a-zA-Z]{1,75}$`).MatchString
 
 func Gateway(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("Gateway")
@@ -145,7 +149,49 @@ func handlePost(writer http.ResponseWriter, request *http.Request) {
 
 func handleGet(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("handleGet")
-	//name := request.URL.Query().Get("name")
+	ticker := request.URL.Query().Get("ticker")
+	if ticker == "" {
+		log.Warn().Msg("no `ticker` parameter - assuming healthcheck")
+		writer.Header().Add(headerContentType, contentTypeText)
+		writer.WriteHeader(http.StatusOK)
+		writer.Write([]byte(http.StatusText(http.StatusOK)))
+		return
+	}
+	if !validTicker(ticker) {
+		log.Warn().Str("ticker", ticker).Msg("client provided invalid ticker")
+		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	var results []signals.SignalEvent
+	var err error
+	var data []byte
+	log.Debug().Str("ticker", ticker).Msg("fetching signals by ticker...")
+	results, err = signals.GetByTicker(ticker)
+	if err != nil {
+		log.Error().Str("ticker", ticker).Err(err).Msg("failed to query ticker")
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	log.Info().Str("ticker", ticker).Int("total", len(results)).Msg("successfully fetched signals")
+	data, err = signals.SignalsToData(results)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to serialize signals")
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	writer.Header().Add(headerContentType, contentTypeJson)
+	writer.WriteHeader(http.StatusOK)
+	writer.Write(data)
+}
+
+func handleDelete(writer http.ResponseWriter, request *http.Request) {
+	log.Trace().Msg("handleDelete")
+	if err := signals.DeleteOld(); err != nil {
+		log.Error().Err(err).Msg("failed to delete old signals")
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	writer.Header().Add(headerContentType, contentTypeText)
 	writer.WriteHeader(http.StatusOK)
 	writer.Write([]byte(http.StatusText(http.StatusOK)))
 }
@@ -153,7 +199,8 @@ func handleGet(writer http.ResponseWriter, request *http.Request) {
 func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("allowedOperations")
 	return map[string]func(writer http.ResponseWriter, request *http.Request){
-		http.MethodPost: handlePost,
-		http.MethodGet:  handleGet,
+		http.MethodPost:   handlePost,
+		http.MethodGet:    handleGet,
+		http.MethodDelete: handleDelete,
 	}
 }

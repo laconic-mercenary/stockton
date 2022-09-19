@@ -2,9 +2,11 @@ package signals
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,10 +16,14 @@ import (
 )
 
 const (
-	storageRequestMethod     = "POST"
+	storeRequestMethod       = "POST"
+	deleteRequestMethod      = "DELETE"
+	queryRequestMethod       = "GET"
 	storageAuthTokenHeader   = "x-functions-key"
 	storageContentTypeHeader = "Content-Type"
 	storageContentTypeValue  = "application/json"
+	errorResponse            = "error"
+	maxDataLengthBytes       = (2 * (1 << 20))
 )
 
 func Store(signal SignalEvent) error {
@@ -25,21 +31,56 @@ func Store(signal SignalEvent) error {
 	sanitize(&signal)
 	signalJson, _ := json.Marshal(signal)
 	signalBytes := bytes.NewReader(signalJson)
-	req, err := http.NewRequest(storageRequestMethod, makeStorageURL(signal.Ticker), signalBytes)
+	_, err := makeRequest(storeRequestMethod, makeStorageURLForStore(signal.Ticker), signalBytes)
+	return err
+}
+
+func DeleteOld() error {
+	log.Trace().Msg("DeleteOld")
+	_, err := makeRequest(deleteRequestMethod, makeStorageURLForDelete(), nil)
+	return err
+}
+
+func GetByTicker(ticker string) ([]SignalEvent, error) {
+	log.Trace().Msg("GetByTicker")
+	var signals []SignalEvent = nil
+	var err error
+	var data []byte = nil
+	if data, err = makeRequest(queryRequestMethod, makeStorageUrlForGet(ticker), nil); err != nil {
+		return nil, err
+	}
+	if signals, err = ParseSignals(data); err != nil {
+		return nil, err
+	}
+	return signals, nil
+}
+
+func makeRequest(method, url string, reader io.Reader) ([]byte, error) {
+	log.Trace().Msg("makeRequest")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*15))
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	setHeaders(req)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return errors.New("received status from storage: " + strconv.FormatInt(int64(resp.StatusCode), 10))
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("received status from storage: %d", resp.StatusCode)
+	}
+	if len(data) > maxDataLengthBytes {
+		return nil, fmt.Errorf("response from storage was larger than %d bytes (max allowed)", maxDataLengthBytes)
+	}
+	return data, nil
 }
 
 func setHeaders(request *http.Request) {
@@ -53,8 +94,19 @@ func sanitize(signal *SignalEvent) {
 	signal.Key = ""
 }
 
-func makeStorageURL(ticker string) string {
-	log.Trace().Msg("getStorageTarget")
+func makeStorageUrlForGet(ticker string) string {
+	log.Trace().Msg("makeStorageUrlForGet")
+	baseAddr := config.StorageAddress()
+	return fmt.Sprintf("%s/%s", baseAddr, ticker)
+}
+
+func makeStorageURLForDelete() string {
+	log.Trace().Msg("makeStorageURLForDelete")
+	return config.StorageAddress()
+}
+
+func makeStorageURLForStore(ticker string) string {
+	log.Trace().Msg("makeStorageURLForStore")
 	baseAddr := config.StorageAddress()
 	partitionKey := ticker
 	rowKey := strconv.FormatInt(currentMillis(), 10)

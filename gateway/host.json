@@ -2,7 +2,13 @@
   "version": "2.0",
   "functionTimeout": "00:00:15",
   "logging": {
+    "logLevel": {
+      "default": "Warning"
+    },
     "applicationInsights": {
+      "enableLiveMetrics": true,
+      "enableDependencyTracking": true,
+      "enablePerformanceCountersCollection": true,  
       "samplingSettings": {
         "isEnabled": true,
         "excludedTypes": "Request"

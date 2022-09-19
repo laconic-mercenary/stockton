@@ -1,20 +1,21 @@
 # OVERVIEW
 
-Request gateway before reaching other functions in stockton.
+CRUD Service for signal storage.
 
 # PREREQUISITES
 
 ## Installation Requirements
-* golang v1.19+
+* Maven
+* JDK 11
 * Azure Core Functions 
 
 # HOWTO
 
 ## Build 
 
-* Build the executeable with go 
+* Build jar with maven
 ```bash
-go build cmd/api.go
+mvn clean package
 ```
 
 * Build with Docker
@@ -31,8 +32,8 @@ func start
 
 ### Docker
 ```bash
-docker build . -t=gateway:local
-docker run gateway:local
+docker build . -t=storage:local
+docker run storage:local
 ```
 
 ### Docker E2E Test
@@ -70,31 +71,24 @@ az account set --subscription <SUBSCRIPTION_ID>
 az group create -n stockton-jpe01 -l japaneast
 ```
 
-5. create an Azure Storage Account (required for Azure Functions App)
-```bash
-az storage account create -n stocktonjpe01gateway -g stockton-jpe01 -l japaneast
-```
+## TODO: add the storage account creation here
+## seems it may actually be valid
 
-6. create an Azure Functions App
+5. create an Azure Functions App
 ```bash
-az functionapp create -n stockton-jpe01-gateway \
+az functionapp create -n stockton-jpe01-storage \
   -g stockton-jpe01 \
   --consumption-plan-location japaneast \
   --os-type Linux \
-  --runtime custom \
+  --runtime java \
   --functions-version 4 \
-  --storage-account stocktonjpe01gateway
+  --storage-account stocktonjpe01storage
 ```
 
-7. build for linux
-```bash
-GOOS=linux GOARCH=amd64 go build cmd/api.go
-```
-
-8. publish the function
+6. build and publish the function
 
 ```bash
-func azure functionapp publish stockton-jpe01-gateway --custom
+mvn clean package azure-functions:deploy
 ```
 
 # NEW PROJECT
