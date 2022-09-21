@@ -27,6 +27,10 @@ services:
       context: ../storage
       dockerfile: Dockerfile
     environment:
+      - "AzureWebJobsStorage='UseDevelopmentStorage=true'"
+      - "FUNCTIONS_WORKER_RUNTIME=java"
       - "SIGNAL_EXPIRY=30"
-      - "USE_STUBBED_STORAGE=true"
-      - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://host.docker.internal:7788/devstoreaccount1;"
+      - "USE_STUBBED_STORAGE=false"
+      - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://host.docker.internal:10002/devstoreaccount1;"
+
+## sduHCwRYWeSNXQqgzVFEb+6StYMD7RCav4OrAZDIn5g/zxiyxfKuXSIOagQU9uVRXyj+gRHtk5RN+ASt88uXwg==
