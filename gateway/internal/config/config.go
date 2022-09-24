@@ -1,9 +1,11 @@
 package config
 
 import (
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -18,6 +20,10 @@ const (
 	envRequireSignalKey           = "REQUIRE_SIGNAL_KEY"
 	envStorageAddress             = "STORAGE_ADDRESS"
 	envStorageToken               = "STORAGE_TOKEN"
+	envSignalQueueUrl             = "SIGNAL_QUEUE_URL"
+	envSignalQueueAccountName     = "SIGNAL_QUEUE_ACCOUNT_NAME"
+	envSignalQueueAccountKey      = "SIGNAL_QUEUE_ACCOUNT_KEY"
+	envSignalQueueMessageTTL      = "SIGNAL_QUEUE_MESSAGE_TTL"
 	allowAllToken                 = "ALLOW"
 	allowAnyOrigin                = "*"
 )
@@ -94,6 +100,32 @@ func StorageAddress() string {
 
 func StorageToken() string {
 	return lookupOrFail(envStorageToken)
+}
+
+func SignalQueueUrl() url.URL {
+	queueUrl := lookupOrFail(envSignalQueueUrl)
+	result, err := url.Parse(queueUrl)
+	if err != nil {
+		log.Fatal().Err(err).Str("url", queueUrl).Msg("failed to parse as url")
+	}
+	return *result
+}
+
+func SignalQueueAccountKey() string {
+	return lookupOrFail(envSignalQueueAccountKey)
+}
+
+func SignalQueueAccountName() string {
+	return lookupOrFail(envSignalQueueAccountName)
+}
+
+func SignalQueueMessageTTL() time.Duration {
+	ttl := lookupOrFail(envSignalQueueMessageTTL)
+	result, err := time.ParseDuration(ttl)
+	if err != nil {
+		log.Fatal().Err(err).Str("messageTTL", ttl).Msg("invalid message TTL")
+	}
+	return result
 }
 
 func lookupOrFail(env string) string {

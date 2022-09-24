@@ -19,7 +19,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public final class Signal implements Serializable, Comparable<Signal> {
-    
+
     @NotEmpty(message = "ticker must not be empty")
     @Size(min = 1, max = 50)
     private String ticker;

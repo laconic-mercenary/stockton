@@ -10,18 +10,20 @@ import org.apache.commons.lang3.StringUtils;
 import com.azure.data.tables.TableClient;
 import com.azure.data.tables.TableClientBuilder;
 import com.azure.data.tables.models.ListEntitiesOptions;
+import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.HttpMethod;
 import com.microsoft.azure.functions.HttpRequestMessage;
-import com.microsoft.azure.functions.HttpResponseMessage;
-import com.microsoft.azure.functions.HttpStatus;
 import com.microsoft.azure.functions.OutputBinding;
 import com.microsoft.azure.functions.annotation.AuthorizationLevel;
 import com.microsoft.azure.functions.annotation.BindingName;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.HttpTrigger;
+import com.microsoft.azure.functions.annotation.QueueTrigger;
 import com.microsoft.azure.functions.annotation.TableInput;
 import com.microsoft.azure.functions.annotation.TableOutput;
+import com.microsoft.azure.functions.annotation.TimerTrigger;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
@@ -29,12 +31,10 @@ import jakarta.validation.Validation;
 public class Function {
 
     @FunctionName("stockton-delete-old-signals")
-    public HttpResponseMessage deleteOldSignals(@HttpTrigger(name = "deleteOldSignals",
-                                                             methods = {HttpMethod.DELETE}, 
-                                                             authLevel = AuthorizationLevel.ANONYMOUS, 
-                                                             route="signals") 
-                                                final HttpRequestMessage<Optional<Signal>> request,
-                                                final ExecutionContext context)
+    public void deleteOldSignals(@TimerTrigger(name = "timerInfo", 
+                                               schedule = "0 30 2 * * *")
+                                               final String timerInfo,
+                                               final ExecutionContext context)
     {
         final Logger logger = context.getLogger();
         final long current = System.currentTimeMillis();
@@ -60,7 +60,6 @@ public class Function {
                     counter.incrementAndGet();
                 });
         }
-        return request.createResponseBuilder(HttpStatus.OK).body(String.format("deleted %d signals", counter.get())).build();
     }
 
     @FunctionName("stockton-get-signals")
@@ -90,63 +89,63 @@ public class Function {
     }
 
     @FunctionName("stockton-store-signal")
-    public HttpResponseMessage storeSignal (@HttpTrigger(name = "storeSignal",
-                                                        methods = {HttpMethod.POST},
-                                                        authLevel = AuthorizationLevel.ANONYMOUS,
-                                                        route="signals/{partitionKey}/{rowKey}") 
-                                            final HttpRequestMessage<Optional<Signal>> request,
-                                            @BindingName("partitionKey") 
-                                            final String partitionKey,
-                                            @BindingName("rowKey") 
-                                            final String rowKey,
-                                            @TableOutput(name="signals", 
-                                                        partitionKey="{partitionKey}", 
-                                                        rowKey = "{rowKey}", 
-                                                        tableName="signals", 
-                                                        connection="SignalsStorageConnectionString") 
-                                            final OutputBinding<Signal> outputSignal,
-                                            final ExecutionContext context)
+    public void storeSignal (@QueueTrigger(name = "signalMessage",
+                                           queueName = "signals",
+                                           connection = "SignalsQueueConnectionString")
+                            final String signalMessage,
+                            @TableOutput(name="signals", 
+                                        tableName="signals", 
+                                        connection="SignalsStorageConnectionString") 
+                            final OutputBinding<Signal> outputSignal,
+                            final ExecutionContext context)
     {
         final Logger logger = context.getLogger();
 
-        logger.fine("new request received");
+        logger.info("new request received: " + signalMessage);
 
-        if (request.getBody().isEmpty()) {
-            logger.warning("missing body in request");
-            return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("invalid request").build();
+        if (StringUtils.isEmpty(signalMessage)){
+            logger.severe("signalMessage cannot be empty");
+            return;
         }
 
-        final Signal requestSignal = request.getBody().get();
-        if (!isValidSignal(requestSignal, partitionKey, rowKey, logger)) {
-            logger.warning("validation failures in request");
-            return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("invalid request").build();
+        Signal queueSignal = null; 
+        try {
+            queueSignal = fromMessage(signalMessage);
+        } catch (final JacksonException ex) {
+            logger.severe("validation failures in request");
+            ex.printStackTrace();
+            return;
         }
+
+        if (!isValidSignal(queueSignal, logger)) {
+            logger.severe("validation failures in request");
+            return;
+        }
+
+        final String partitionKey = queueSignal.getTicker();
+        final String rowKey = generateRowKey();
         
-        logger.fine("storing new signal...");
-
-        final Signal newSignal = new Signal();
-        newSignal.setPartitionKey(partitionKey);
-        newSignal.setRowKey(rowKey);
-        newSignal.setAction(requestSignal.getAction());
-        newSignal.setClose(requestSignal.getClose());
-        newSignal.setContracts(requestSignal.getContracts());
-        newSignal.setTicker(requestSignal.getTicker());
-        newSignal.setNotes(requestSignal.getNotes());
+        queueSignal.setPartitionKey(partitionKey);
+        queueSignal.setRowKey(rowKey);
 
         if (Config.useStubbedStorage()) {
             logger.warning("using stubbed storage - will not store the new signal");
         } else {
-            outputSignal.setValue(newSignal);
+            outputSignal.setValue(queueSignal);
         }
 
-        logger.info("new signal stored: " + newSignal.toString());
+        logger.info("new signal successfully stored");
+    }
 
-        return request.createResponseBuilder(HttpStatus.OK).body(newSignal).build();
+    private static Signal fromMessage(final String signalMessage) throws JacksonException {
+        return new ObjectMapper().readValue(signalMessage, Signal.class);
+    }
+
+    private static String generateRowKey() {
+        return Long.toString(System.currentTimeMillis());
     }
 
     private static boolean isValidSignal(final Signal signal, 
-                                         final String partitionKey,
-                                         final String rowKey,
                                          final Logger logger) {
         final Set<ConstraintViolation<Signal>> results = Validation.buildDefaultValidatorFactory()
                                                                    .getValidator()
@@ -156,22 +155,6 @@ public class Function {
                 logger.warning(validationFailure.getMessage());
             }
             return false;    
-        }
-        if (partitionKey.length() > Byte.MAX_VALUE) {
-            logger.warning("partitionKey is too long");
-            return false;
-        }
-        if (rowKey.length() > Byte.MAX_VALUE) {
-            logger.warning("rowKey is too long");
-            return false;
-        }
-        if (partitionKey.isEmpty() || !StringUtils.isAlphanumeric(partitionKey)) {
-            logger.warning("invalid partitionKey: " + partitionKey);
-            return false;
-        }
-        if (rowKey.isEmpty() || !StringUtils.isAlphanumeric(rowKey)) {
-            logger.warning("invalid rowKey: " + rowKey);
-            return false;
         }
         return true;
     }

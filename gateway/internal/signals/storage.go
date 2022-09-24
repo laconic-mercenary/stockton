@@ -1,14 +1,10 @@
 package signals
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -29,10 +25,7 @@ const (
 func Store(signal SignalEvent) error {
 	log.Trace().Msg("Store")
 	sanitize(&signal)
-	signalJson, _ := json.Marshal(signal)
-	signalBytes := bytes.NewReader(signalJson)
-	_, err := makeRequest(storeRequestMethod, makeStorageURLForStore(signal.Ticker), signalBytes)
-	return err
+	return enqueue(signal)
 }
 
 func DeleteOld() error {
@@ -70,7 +63,7 @@ func makeRequest(method, url string, reader io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -103,17 +96,4 @@ func makeStorageUrlForGet(ticker string) string {
 func makeStorageURLForDelete() string {
 	log.Trace().Msg("makeStorageURLForDelete")
 	return config.StorageAddress()
-}
-
-func makeStorageURLForStore(ticker string) string {
-	log.Trace().Msg("makeStorageURLForStore")
-	baseAddr := config.StorageAddress()
-	partitionKey := ticker
-	rowKey := strconv.FormatInt(currentMillis(), 10)
-	return fmt.Sprintf("%s/%s/%s", baseAddr, partitionKey, rowKey)
-}
-
-func currentMillis() int64 {
-	log.Trace().Msg("currentMillis")
-	return time.Now().UnixMilli()
 }
