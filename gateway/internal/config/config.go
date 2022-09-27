@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"net/url"
 	"os"
 	"strconv"
@@ -18,12 +19,15 @@ const (
 	envAuthorizationToken         = "AUTHORIZATION_TOKEN"
 	envAllowedOrigin              = "ALLOWED_ORIGIN"
 	envRequireSignalKey           = "REQUIRE_SIGNAL_KEY"
+	envRequireAuthHeader          = "REQUIRE_AUTH_HEADER"
 	envStorageAddress             = "STORAGE_ADDRESS"
 	envStorageToken               = "STORAGE_TOKEN"
 	envSignalQueueUrl             = "SIGNAL_QUEUE_URL"
 	envSignalQueueAccountName     = "SIGNAL_QUEUE_ACCOUNT_NAME"
 	envSignalQueueAccountKey      = "SIGNAL_QUEUE_ACCOUNT_KEY"
 	envSignalQueueMessageTTL      = "SIGNAL_QUEUE_MESSAGE_TTL"
+	envSignalQueueClientTimeout   = "SIGNAL_QUEUE_CLIENT_TIMEOUT"
+	envSignalQueueClientRetry     = "SIGNAL_QUEUE_CLIENT_RETRIES"
 	allowAllToken                 = "ALLOW"
 	allowAnyOrigin                = "*"
 )
@@ -53,9 +57,20 @@ func RequireSignalKey() bool {
 	if val, ok := os.LookupEnv(envRequireSignalKey); ok {
 		requireSignalKey, err := strconv.ParseBool(val)
 		if err != nil {
-			log.Fatal().Err(err).Msg("invalid value configured for " + envRequireSignalKey)
+			log.Fatal().Err(err).Str("key", envRequireSignalKey).Msg("invalid value specified")
 		}
 		return requireSignalKey
+	}
+	return false
+}
+
+func RequireAuthHeader() bool {
+	if val, ok := os.LookupEnv(envRequireAuthHeader); ok {
+		requireAuthHeader, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Fatal().Err(err).Str("key", envRequireAuthHeader).Msg("invalid value specified")
+		}
+		return requireAuthHeader
 	}
 	return false
 }
@@ -99,7 +114,13 @@ func StorageAddress() string {
 }
 
 func StorageToken() string {
-	return lookupOrFail(envStorageToken)
+	token := lookupOrFail(envStorageToken)
+	data, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		log.Fatal().Err(err).Str("token", token).Msg("failed to decode base64 token")
+	}
+	log.Debug().Bytes("data", data).Str("b64token", token).Msg("storage token information")
+	return strings.TrimSpace(string(data))
 }
 
 func SignalQueueUrl() url.URL {
@@ -126,6 +147,27 @@ func SignalQueueMessageTTL() time.Duration {
 		log.Fatal().Err(err).Str("messageTTL", ttl).Msg("invalid message TTL")
 	}
 	return result
+}
+
+func SignalQueueClientTimeout() time.Duration {
+	clientTimeout := lookupOrFail(envSignalQueueClientTimeout)
+	result, err := time.ParseDuration(clientTimeout)
+	if err != nil {
+		log.Fatal().Err(err).Str("clientTimeout", clientTimeout).Msg("invalid client timeout")
+	}
+	return result
+}
+
+func SignalQueueClientRetry() int32 {
+	clientRetries := lookupOrFail(envSignalQueueClientRetry)
+	result, err := strconv.ParseInt(clientRetries, 10, 32)
+	if err != nil {
+		log.Fatal().Err(err).Str("clientRetries", clientRetries).Msg("invalid client retry (invalid format)")
+	}
+	if result < 1 || result > 10 {
+		log.Fatal().Err(err).Str("clientRetries", clientRetries).Msg("invalid client retr (out of range)")
+	}
+	return int32(result)
 }
 
 func lookupOrFail(env string) string {

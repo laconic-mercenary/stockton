@@ -5,8 +5,8 @@
     "logLevel": {
       "Function.stockton-store-signal": "Information",
       "Function.stockton-delete-old-signals": "Information",
-      "Function.stockton-get-signals": "Warning",
-      "default": "Error"
+      "Function.stockton-get-signals": "Information",
+      "default": "Information"
     },
     "applicationInsights": {
       "enableLiveMetrics": true,

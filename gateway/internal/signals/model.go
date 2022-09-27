@@ -17,7 +17,7 @@ type SignalEvent struct {
 
 func ParseSignal(data []byte) (SignalEvent, error) {
 	var err error
-	event := SignalEvent{}
+	var event SignalEvent = SignalEvent{}
 	if err = json.Unmarshal(data, &event); err != nil {
 		return event, err
 	}
@@ -26,7 +26,7 @@ func ParseSignal(data []byte) (SignalEvent, error) {
 
 func ParseSignals(data []byte) ([]SignalEvent, error) {
 	var err error
-	events := make([]SignalEvent, 0)
+	var events []SignalEvent = make([]SignalEvent, 0)
 	if err = json.Unmarshal(data, &events); err != nil {
 		return nil, err
 	}

@@ -8,34 +8,45 @@ services:
       - "8095:8080"
   gateway:
     ports:
-      - "8080:8080"
+      - "8098:8080"
     build:
       context: ../gateway
       dockerfile: Dockerfile
     environment:
       LOG_REQUESTS: "true"
       REQUIRE_SIGNAL_KEY: "true"
+      REQUIRE_AUTH_HEADER: "false"
       ALLOWED_ORIGIN: "*"
       LOGGING_LEVEL: "debug"
       AUTHORIZATION_TOKEN: "string"
+      STORAGE_ADDRESS: "http://storage:80/api/signals"
+      STORAGE_TOKEN: "c2FtcGxlLWF1dGgta2V5Cg=="
       SIGNAL_QUEUE_URL: "http://azurite:10001/devstoreaccount1/signals"
       SIGNAL_QUEUE_ACCOUNT_NAME: "devstoreaccount1"
       SIGNAL_QUEUE_ACCOUNT_KEY: "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
-      SIGNAL_QUEUE_MESSAGE_TTL: "60s"
+      SIGNAL_QUEUE_MESSAGE_TTL: "180s"
+      SIGNAL_QUEUE_CLIENT_TIMEOUT: "10s"
+      SIGNAL_QUEUE_CLIENT_RETRIES: "3"
   storage:
     ports:
-      - "8090:80"
+      - "8099:80"
     build: 
       context: ../storage
       dockerfile: Dockerfile
     environment:
       - "AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
       - "FUNCTIONS_WORKER_RUNTIME=java"
+      - "AUTH_HEADER_NAME=x-storage-auth-key"
+      - "AUTH_HEADER_KEY=c2FtcGxlLWF1dGgta2V5Cg=="
       - "SIGNAL_EXPIRY=30"
+      - "AZURE_FUNCTIONS_ENVIRONMENT=Development"
       - "USE_STUBBED_STORAGE=false"
-      - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
-      - "SignalsQueueConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;"
+      - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1;"
+      - "SignalsQueueConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;QueueEndpoint=http://azurite:10001/devstoreaccount1;"
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite
+    ports:
+      - "8092:10002"
+      - "8091:10001"
+      - "8090:10000"
 
-## sduHCwRYWeSNXQqgzVFEb+6StYMD7RCav4OrAZDIn5g/zxiyxfKuXSIOagQU9uVRXyj+gRHtk5RN+ASt88uXwg==

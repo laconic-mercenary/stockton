@@ -20,6 +20,32 @@ import jakarta.validation.constraints.Size;
 
 public final class Signal implements Serializable, Comparable<Signal> {
 
+    public Signal(final Signal signal) {
+        this(signal.getTicker(), 
+            signal.getAction(), 
+            signal.getClose(), 
+            signal.getContracts(), 
+            signal.getNotes(), 
+            signal.getPartitionKey(), 
+            signal.getRowKey());
+    }
+
+    public Signal(@NotEmpty(message = "ticker must not be empty") @Size(min = 1, max = 50) final String ticker,
+            @NotEmpty(message = "action must not be empty") @Pattern(regexp = "(sell|buy)", message = "action must be either 'buy' or 'sell'") final String action,
+            @DecimalMin("0.0") @DecimalMax("9999999.99") final double close, @Min(1) @Max(99999) final int contracts,
+            @Size(min = 0, max = 500) final String notes, final String partitionKey, final String rowKey) {
+        this.ticker = ticker;
+        this.action = action;
+        this.close = close;
+        this.contracts = contracts;
+        this.notes = notes;
+        this.PartitionKey = partitionKey;
+        this.RowKey = rowKey;
+    }
+
+    public Signal() {
+    }
+
     @NotEmpty(message = "ticker must not be empty")
     @Size(min = 1, max = 50)
     private String ticker;
@@ -39,24 +65,24 @@ public final class Signal implements Serializable, Comparable<Signal> {
     @Size(min = 0, max = 500)
     private String notes;
 
-    private String partitionKey;
+    private String PartitionKey;
 
-    private String rowKey;
+    private String RowKey;
 
     public void setPartitionKey(final String partitionKey) {
-        this.partitionKey = partitionKey;
+        this.PartitionKey = partitionKey;
     }
 
     public String getPartitionKey() {
-        return partitionKey;
+        return PartitionKey;
     }
 
     public void setRowKey(final String rowKey) {
-        this.rowKey = rowKey;
+        this.RowKey = rowKey;
     }
 
     public String getRowKey() {
-        return rowKey;
+        return RowKey;
     }
 
     public void setNotes(final String notes) {

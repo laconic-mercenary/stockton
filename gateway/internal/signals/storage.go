@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -12,10 +13,8 @@ import (
 )
 
 const (
-	storeRequestMethod       = "POST"
-	deleteRequestMethod      = "DELETE"
 	queryRequestMethod       = "GET"
-	storageAuthTokenHeader   = "x-functions-key"
+	storageAuthTokenHeader   = "x-storage-auth-key"
 	storageContentTypeHeader = "Content-Type"
 	storageContentTypeValue  = "application/json"
 	errorResponse            = "error"
@@ -28,18 +27,17 @@ func Store(signal SignalEvent) error {
 	return enqueue(signal)
 }
 
-func DeleteOld() error {
-	log.Trace().Msg("DeleteOld")
-	_, err := makeRequest(deleteRequestMethod, makeStorageURLForDelete(), nil)
-	return err
-}
-
 func GetByTicker(ticker string) ([]SignalEvent, error) {
 	log.Trace().Msg("GetByTicker")
 	var signals []SignalEvent = nil
 	var err error
 	var data []byte = nil
-	if data, err = makeRequest(queryRequestMethod, makeStorageUrlForGet(ticker), nil); err != nil {
+	var notFound bool
+	data, notFound, err = makeRequest(queryRequestMethod, makeStorageUrlForGet(ticker), nil)
+	if notFound {
+		return make([]SignalEvent, 0), nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	if signals, err = ParseSignals(data); err != nil {
@@ -48,32 +46,41 @@ func GetByTicker(ticker string) ([]SignalEvent, error) {
 	return signals, nil
 }
 
-func makeRequest(method, url string, reader io.Reader) ([]byte, error) {
+func makeRequest(method, url string, reader io.Reader) ([]byte, bool, error) {
 	log.Trace().Msg("makeRequest")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*15))
 	defer cancel()
+	log.Debug().Str("url", url).Str("method", method).Msg("will make the following request")
 	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	setHeaders(req)
+	if config.LogRequests() {
+		if _data, _err := httputil.DumpRequest(req, false); _err == nil {
+			log.Info().Bytes("storage_request", _data).Msg("request logged")
+		}
+	}
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, true, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("received status from storage: %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("received status from storage: %d", resp.StatusCode)
 	}
 	if len(data) > maxDataLengthBytes {
-		return nil, fmt.Errorf("response from storage was larger than %d bytes (max allowed)", maxDataLengthBytes)
+		return nil, false, fmt.Errorf("response from storage was larger than %d bytes (max allowed)", maxDataLengthBytes)
 	}
-	return data, nil
+	return data, false, nil
 }
 
 func setHeaders(request *http.Request) {
@@ -91,9 +98,4 @@ func makeStorageUrlForGet(ticker string) string {
 	log.Trace().Msg("makeStorageUrlForGet")
 	baseAddr := config.StorageAddress()
 	return fmt.Sprintf("%s/%s", baseAddr, ticker)
-}
-
-func makeStorageURLForDelete() string {
-	log.Trace().Msg("makeStorageURLForDelete")
-	return config.StorageAddress()
 }

@@ -70,15 +70,13 @@ func enqueueMessage(signalMessage string, ctx context.Context, queueUrl azqueue.
 }
 
 func getContext() (context.Context, context.CancelFunc) {
-	var timeout time.Duration
-	timeout, _ = time.ParseDuration("10s")
-	return context.WithTimeout(context.Background(), timeout)
+	return context.WithTimeout(context.Background(), config.SignalQueueClientTimeout())
 }
 
 func getMessageOptions() azqueue.PipelineOptions {
 	return azqueue.PipelineOptions{
 		Retry: azqueue.RetryOptions{
-			MaxTries: 3,
+			MaxTries: config.SignalQueueClientRetry(),
 		},
 	}
 }
