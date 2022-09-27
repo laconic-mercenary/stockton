@@ -7,7 +7,7 @@
       },
       "servers": [
          {
-            "url": "http://localhost:8080",
+            "url": "http://localhost:8098",
             "description": "Local docker-compose server"
          },
          {
@@ -17,58 +17,6 @@
       ],
       "paths": {
          "/api/gateway": {
-            "delete": {
-               "summary": "Deletes old signals",
-               "description": "Deletes old signals",
-               "responses": {
-                  "200": {
-                     "description": "All signals belonging to that ticker",
-                     "content": {
-                        "application/json": {
-                           "schema": {
-                              "type": "array",
-                              "items": {
-                                 "$ref": "#/components/schemas/SignalEvent"
-                              }
-                           }
-                        }
-                     }
-                  },
-                  "400": {
-                     "description": "If server received a malformed request.",
-                     "content": {
-                        "text/plain": {
-                           "schema": {
-                              "type": "string",
-                              "example": "bad request"
-                           }
-                        }
-                     }
-                  },
-                  "401": {
-                     "description": "If key is invalid.",
-                     "content": {
-                        "text/plain": {
-                           "schema": {
-                              "type": "string",
-                              "example": "not authorized"
-                           }
-                        }
-                     }
-                  },
-                  "5XX": {
-                     "description": "If an unexpected server error happens.",
-                     "content": {
-                        "text/plain": {
-                           "schema": {
-                              "type": "string",
-                              "example": "server error"
-                           }
-                        }
-                     }
-                  }
-               }
-            },
             "get": {
                "summary": "Stock ticker or crypto identifier",
                "description": "Stock ticker or crypto identifier",
@@ -81,6 +29,13 @@
                      },
                      "required": false,
                      "description": "(Optional) The ticker to fetch signals for. If not specified, does health check."
+                  },
+                  {
+                     "in": "header",
+                     "name": "X-Gateway-Allow-Token",
+                     "schema": {
+                        "type": "string"
+                     }
                   }
                ],
                "responses": {
@@ -210,6 +165,13 @@
          }
       },
       "components": {
+         "securitySchemes": {
+            "authHeader": {
+               "type": "apiKey",
+               "in" : "header",
+               "name" : "X-Gateway-Allow-Token"
+            }
+         },
          "schemas": {
             "SignalEvent": {
                "title": "A Signal Event coming from Trading View",

@@ -11,12 +11,13 @@ type SignalEvent struct {
 	Action         string  `json:"action" validate:"oneof=buy sell"`
 	Close          float64 `json:"close" validate:"gt=0.0,lte=9999999.99"`
 	ContractsCount int     `json:"contracts" validate:"gte=1,lte=9999"`
+	Notes          string  `json:"notes,omitempty"`
 	Key            string  `json:"key,omitempty"`
 }
 
 func ParseSignal(data []byte) (SignalEvent, error) {
 	var err error
-	event := SignalEvent{}
+	var event SignalEvent = SignalEvent{}
 	if err = json.Unmarshal(data, &event); err != nil {
 		return event, err
 	}
@@ -25,7 +26,7 @@ func ParseSignal(data []byte) (SignalEvent, error) {
 
 func ParseSignals(data []byte) ([]SignalEvent, error) {
 	var err error
-	events := make([]SignalEvent, 0)
+	var events []SignalEvent = make([]SignalEvent, 0)
 	if err = json.Unmarshal(data, &events); err != nil {
 		return nil, err
 	}
