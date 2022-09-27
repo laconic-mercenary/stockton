@@ -3,7 +3,6 @@ package signals
 import (
 	"context"
 	"encoding/base64"
-	"net/url"
 	"time"
 
 	"github.com/Azure/azure-storage-queue-go/azqueue"
@@ -15,7 +14,6 @@ import (
 func enqueue(signal SignalEvent) error {
 	log.Trace().Msg("enqueue")
 	var err error
-	var _url url.URL = config.SignalQueueUrl()
 
 	log.Debug().Msg("getting credentials...")
 	var credential azqueue.Credential
@@ -25,7 +23,7 @@ func enqueue(signal SignalEvent) error {
 	}
 
 	log.Debug().Msg("creating pipeline...")
-	queueUrl := azqueue.NewQueueURL(_url, azqueue.NewPipeline(credential, getMessageOptions()))
+	queueUrl := azqueue.NewQueueURL(config.SignalQueueUrl(), azqueue.NewPipeline(credential, getMessageOptions()))
 
 	ctx, cancel := getContext()
 	defer cancel()
@@ -36,8 +34,7 @@ func enqueue(signal SignalEvent) error {
 		return err
 	}
 
-	messageCount := props.ApproximateMessagesCount()
-	log.Debug().Int32("messageCount", messageCount).Msg("approximate number of messages currently on the queue")
+	log.Debug().Int32("messageCount", props.ApproximateMessagesCount()).Msg("approximate number of messages currently on the queue")
 
 	addRequestId(&signal, uuid.New().String())
 
@@ -82,7 +79,6 @@ func getMessageOptions() azqueue.PipelineOptions {
 }
 
 func getSignalMessage(signal SignalEvent) (string, error) {
-	var signalData []byte
 	signalData, err := SignalToData(signal)
 	if err != nil {
 		return "", err
@@ -100,7 +96,9 @@ func addRequestId(signal *SignalEvent, requestId string) {
 }
 
 func getProperties(queueUrl azqueue.QueueURL, ctx context.Context) (*azqueue.QueueGetPropertiesResponse, error) {
-	props, err := queueUrl.GetProperties(ctx)
+	var err error
+	var props *azqueue.QueueGetPropertiesResponse
+	props, err = queueUrl.GetProperties(ctx)
 	if err != nil {
 		errorType := err.(azqueue.StorageError).ServiceCode()
 		if errorType == azqueue.ServiceCodeQueueNotFound {

@@ -144,7 +144,6 @@ public class Function {
                      .stream()
                      .sorted(SORT_REVERSE_ROWKEY)
                      .map(signal -> {
-                            logger.info("processing notes for: " + signal.toString());
                             String notes = signal.getNotes();
                             if (StringUtils.isEmpty(notes)) {
                                 notes = "";

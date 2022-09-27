@@ -165,7 +165,7 @@ func SignalQueueClientRetry() int32 {
 		log.Fatal().Err(err).Str("clientRetries", clientRetries).Msg("invalid client retry (invalid format)")
 	}
 	if result < 1 || result > 10 {
-		log.Fatal().Err(err).Str("clientRetries", clientRetries).Msg("invalid client retr (out of range)")
+		log.Fatal().Err(err).Str("clientRetries", clientRetries).Msg("invalid client retry (out of range)")
 	}
 	return int32(result)
 }
