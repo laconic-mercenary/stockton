@@ -42,6 +42,10 @@ func ServerAddress() string {
 	return ":8080"
 }
 
+func RequestIdKey() string {
+	return "X-Gateway-RequestId"
+}
+
 func LogRequests() bool {
 	if val, ok := os.LookupEnv(envDebugRequests); ok {
 		logRequests, err := strconv.ParseBool(val)

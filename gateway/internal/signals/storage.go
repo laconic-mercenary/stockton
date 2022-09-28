@@ -21,19 +21,19 @@ const (
 	maxDataLengthBytes       = (2 * (1 << 20))
 )
 
-func Store(signal SignalEvent) error {
+func Store(signal SignalEvent, ctx context.Context) error {
 	log.Trace().Msg("Store")
 	sanitize(&signal)
-	return enqueue(signal)
+	return enqueue(signal, ctx)
 }
 
-func GetByTicker(ticker string) ([]SignalEvent, error) {
+func GetByTicker(ticker string, ctx context.Context) ([]SignalEvent, error) {
 	log.Trace().Msg("GetByTicker")
 	var signals []SignalEvent = nil
 	var err error
 	var data []byte = nil
 	var notFound bool
-	data, notFound, err = makeRequest(queryRequestMethod, makeStorageUrlForGet(ticker), nil)
+	data, notFound, err = makeRequest(queryRequestMethod, makeStorageUrlForGet(ticker), nil, ctx)
 	if notFound {
 		return make([]SignalEvent, 0), nil
 	}
@@ -46,11 +46,12 @@ func GetByTicker(ticker string) ([]SignalEvent, error) {
 	return signals, nil
 }
 
-func makeRequest(method, url string, reader io.Reader) ([]byte, bool, error) {
+func makeRequest(method, url string, reader io.Reader, ctx context.Context) ([]byte, bool, error) {
 	log.Trace().Msg("makeRequest")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*15))
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(time.Second*15))
+	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
 	defer cancel()
-	log.Debug().Str("url", url).Str("method", method).Msg("will make the following request")
+	log.Debug().Str("requestId", requestId).Str("url", url).Str("method", method).Msg("will make the following request")
 	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
 		return nil, false, err
@@ -58,7 +59,7 @@ func makeRequest(method, url string, reader io.Reader) ([]byte, bool, error) {
 	setHeaders(req)
 	if config.LogRequests() {
 		if _data, _err := httputil.DumpRequest(req, false); _err == nil {
-			log.Info().Bytes("storage_request", _data).Msg("request logged")
+			log.Info().Str("requestId", requestId).Bytes("storageRequest", _data).Msg("request logged")
 		}
 	}
 	client := &http.Client{}

@@ -3,40 +3,40 @@ package signals
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"time"
 
 	"github.com/Azure/azure-storage-queue-go/azqueue"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/stockton/internal/config"
 )
 
-func enqueue(signal SignalEvent) error {
+func enqueue(signal SignalEvent, ctx context.Context) error {
 	log.Trace().Msg("enqueue")
 	var err error
-
-	log.Debug().Msg("getting credentials...")
+	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
+	log.Debug().Str("requestId", requestId).Msg("getting credentials...")
 	var credential azqueue.Credential
 	credential, err = getCredentials()
 	if err != nil {
 		return err
 	}
 
-	log.Debug().Msg("creating pipeline...")
+	log.Debug().Str("requestId", requestId).Msg("creating pipeline...")
 	queueUrl := azqueue.NewQueueURL(config.SignalQueueUrl(), azqueue.NewPipeline(credential, getMessageOptions()))
 
-	ctx, cancel := getContext()
+	queueCtx, cancel := getContext(ctx)
 	defer cancel()
 
-	log.Debug().Msg("getting properties...")
-	props, err := getProperties(queueUrl, ctx)
+	log.Debug().Str("requestId", requestId).Msg("getting properties...")
+	props, err := getProperties(queueUrl, queueCtx)
 	if err != nil {
 		return err
 	}
 
-	log.Debug().Int32("messageCount", props.ApproximateMessagesCount()).Msg("approximate number of messages currently on the queue")
+	log.Debug().Str("requestId", requestId).Int32("messageCount", props.ApproximateMessagesCount()).Msg("approximate number of messages currently on the queue")
 
-	addRequestId(&signal, uuid.New().String())
+	addRequestId(&signal, requestId)
 
 	var signalMessage string
 	signalMessage, err = getSignalMessage(signal)
@@ -44,7 +44,7 @@ func enqueue(signal SignalEvent) error {
 		return err
 	}
 
-	err = enqueueMessage(signalMessage, ctx, queueUrl)
+	err = enqueueMessage(signalMessage, queueCtx, queueUrl)
 	if err != nil {
 		return err
 	}
@@ -62,12 +62,13 @@ func enqueueMessage(signalMessage string, ctx context.Context, queueUrl azqueue.
 	if err != nil {
 		return err
 	}
-	log.Info().Str("data", signalMessage).Str("status", enqueueResult.Status()).Str("requestId", enqueueResult.RequestID()).Str("messageId", string(enqueueResult.MessageID)).Msg("enqueued message")
+	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
+	log.Info().Str("requestId", requestId).Str("data", signalMessage).Str("status", enqueueResult.Status()).Str("queueRequestId", enqueueResult.RequestID()).Str("queueMessageId", string(enqueueResult.MessageID)).Msg("enqueued message")
 	return nil
 }
 
-func getContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), config.SignalQueueClientTimeout())
+func getContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, config.SignalQueueClientTimeout())
 }
 
 func getMessageOptions() azqueue.PipelineOptions {

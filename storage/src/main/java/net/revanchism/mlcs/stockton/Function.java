@@ -4,8 +4,10 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -44,12 +46,18 @@ public class Function {
 
     private static final Comparator<Signal> SORT_REVERSE_ROWKEY = Comparator.comparing(Signal::getRowKey).reversed();
 
+    private static final String CRON_DELETE = "0 30 2 * * *";
+
     private static Signal fromMessage(final String signalMessage) throws JacksonException {
         return new ObjectMapper().readValue(signalMessage, Signal.class);
     }
 
     private static String generateRowKey() {
         return Long.toString(System.currentTimeMillis());
+    }
+
+    private static String generateRequestId() {
+        return String.format("req-%d-%d", System.currentTimeMillis(), new Random().nextInt());
     }
 
     private static boolean isValidSignal(final Signal signal, 
@@ -75,24 +83,39 @@ public class Function {
         return authKey.equals(userProvidedAuthKey);
     }
 
+    private static void logRequestDuration(final long startMillis, 
+                                           final String requestId,
+                                           final Logger logger) {
+        log(String.format("request completed in %d ms", System.currentTimeMillis() - startMillis), requestId, logger, Level.INFO);
+    }
+
+    private static void log(final String message, 
+                            final String requestId, 
+                            final Logger logger,
+                            final Level level) {
+        if (logger.isLoggable(level)) {
+            logger.log(level, String.format("msg='%s', requestId=%s", message, requestId));
+        }
+    }
+
     @FunctionName("stockton-delete-old-signals")
     public void deleteOldSignals(@TimerTrigger(name = "timerInfo", 
-                                               schedule = "0 30 2 * * *")
+                                               schedule = CRON_DELETE)
                                                final String timerInfo,
                                                final ExecutionContext context)
     {
         final Logger logger = context.getLogger();
         final long current = System.currentTimeMillis();
         final long expiry = (current - Config.getSignalExpiryDays());
+        final String requestId = generateRequestId();
         final AtomicInteger counter = new AtomicInteger(0);
 
-        logger.info(String.format("deleting signals older than %d, current is %d", expiry, current));
+        log(String.format("deleting signals older than %d, current is %d", expiry, current), requestId, logger, Level.INFO);
         
         if (Config.useStubbedStorage()) {
-            logger.warning("using stubbed storage - will not delete any signals");
+            log("using stubbed storage - will not delete any signals", requestId, logger, Level.WARNING);
         } else {
-            final String connectionString = Config.getSignalsTableConnectionString();
-            final TableClient client =  new TableClientBuilder().connectionString(connectionString)
+            final TableClient client =  new TableClientBuilder().connectionString(Config.getSignalsTableConnectionString())
                                                                 .tableName(TABLE_NAME)
                                                                 .buildClient();
             final String filter = String.format("RowKey le '%s'", expiry);
@@ -100,12 +123,14 @@ public class Function {
             client.listEntities(options, null, null)
                 .stream()
                 .forEach(entity -> { 
-                    logger.fine(String.format("removing %s - %s", entity.getPartitionKey(), entity.getRowKey()));
-                    client.deleteEntity(entity.getPartitionKey(), entity.getRowKey()); 
+                    if (logger.isLoggable(Level.FINE)) {
+                        log(String.format("removing %s - %s", entity.getPartitionKey(), entity.getRowKey()), requestId, logger, Level.FINE);
+                    }
+                    client.deleteEntity(entity.getPartitionKey(), entity.getRowKey());
                     counter.incrementAndGet();
                 });
-
             logger.info(String.format("deleted %d entries", counter.get()));
+            logRequestDuration(current, requestId, logger);
         }
     }
 
@@ -126,36 +151,40 @@ public class Function {
                                 final ExecutionContext context)
     {
         final Logger logger = context.getLogger();
+        final String requestId = generateRequestId();
+        final long startMillis = System.currentTimeMillis();
 
         if (!isAuthorized(request.getHeaders(), logger)) {
             // this looks silly but, AuthorizationLevel seems painful
-            logger.warning("user not authorized for request - returning empty response");
+            log("user not authorized for request - returning empty response", requestId, logger, Level.WARNING);
             return EMPTY_RESPONSE;
         }
 
-        logger.info(new StringBuilder().append("query for ticker: ")
+        log(new StringBuilder().append("query for ticker: ")
                                         .append(ticker)
                                         .append(" resulted in ")
                                         .append(signals.length)
                                         .append(" signals")
-                                        .toString());
+                                        .toString(), requestId, logger, Level.INFO);
 
-        return Arrays.asList(signals)
-                     .stream()
-                     .sorted(SORT_REVERSE_ROWKEY)
-                     .map(signal -> {
-                            String notes = signal.getNotes();
-                            if (StringUtils.isEmpty(notes)) {
-                                notes = "";
-                            } else {
-                                notes = notes + ";";
-                            }
-                            notes = notes + "timestamp=" + signal.getRowKey();
-                            signal.setNotes(notes);
-                            return signal;
-                        })
-                     .collect(Collectors.toUnmodifiableList())
-                     .toArray(new Signal[signals.length]);
+        final Signal[] results = Arrays.asList(signals)
+                                        .stream()
+                                        .sorted(SORT_REVERSE_ROWKEY)
+                                        .map(signal -> {
+                                                String notes = signal.getNotes();
+                                                if (StringUtils.isEmpty(notes)) {
+                                                    notes = "";
+                                                } else {
+                                                    notes = notes + ";";
+                                                }
+                                                notes = notes + "timestamp=" + signal.getRowKey();
+                                                signal.setNotes(notes);
+                                                return signal;
+                                            })
+                                        .collect(Collectors.toUnmodifiableList())
+                                        .toArray(new Signal[signals.length]);
+        logRequestDuration(startMillis, requestId, logger);
+        return results;
     }
 
     @FunctionName("stockton-store-signal")
@@ -170,11 +199,13 @@ public class Function {
                             final ExecutionContext context)
     {
         final Logger logger = context.getLogger();
+        final String requestId = generateRequestId();
+        final long startMillis = System.currentTimeMillis();
 
-        logger.info("new request received: " + signalMessage);
+        log("new request received: " + signalMessage, requestId, logger, Level.FINE);
 
         if (StringUtils.isEmpty(signalMessage)){
-            logger.severe("signalMessage cannot be empty");
+            log("signalMessage cannot be empty", requestId, logger, Level.SEVERE);
             return;
         }
 
@@ -182,13 +213,13 @@ public class Function {
         try {
             queueSignal = fromMessage(signalMessage);
         } catch (final JacksonException ex) {
-            logger.severe("validation failures in request");
+            log("validation failures in request", requestId, logger, Level.SEVERE);
             ex.printStackTrace();
             return;
         }
 
         if (!isValidSignal(queueSignal, logger)) {
-            logger.severe("validation failures in request");
+            log("validation failures in request", requestId, logger, Level.SEVERE);
             return;
         }
 
@@ -196,11 +227,12 @@ public class Function {
         queueSignal.setRowKey(generateRowKey());
 
         if (Config.useStubbedStorage()) {
-            logger.warning("using stubbed storage - will not store the new signal");
+            log("using stubbed storage - will not store the new signal", requestId, logger, Level.WARNING);
         } else {
             outputSignal.setValue(queueSignal);
         }
 
-        logger.info("new signal successfully stored");
+        log("new signal successfully stored", requestId, logger, Level.INFO);
+        logRequestDuration(startMillis, requestId, logger);
     }
 }

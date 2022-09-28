@@ -1,13 +1,16 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stockton/internal/config"
 	"github.com/stockton/internal/signals"
 
@@ -27,6 +30,9 @@ var validTicker = regexp.MustCompile(`^[a-zA-Z]{1,75}$`).MatchString
 
 func Gateway(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("Gateway")
+	timestampStart := time.Now().UnixMilli()
+	requestId := uuid.New().String()
+	ctx := createContext(requestId)
 	logRequest(request)
 	if !isOriginAllowed(request) {
 		log.Warn().Msg("request not authorized")
@@ -39,7 +45,13 @@ func Gateway(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	op(writer, request)
+	op(writer, request, ctx)
+	logRequestDuration(timestampStart, requestId)
+}
+
+func logRequestDuration(start int64, requestId string) {
+	end := time.Now().UnixMilli()
+	log.Info().Int64("elapsedMillis", end-start).Str("requestId", requestId).Msg("request finished")
 }
 
 func logRequest(request *http.Request) {
@@ -105,11 +117,12 @@ func isObjectAuthorized(signal signals.SignalEvent) bool {
 	return true
 }
 
-func handlePost(writer http.ResponseWriter, request *http.Request) {
+func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
 	log.Trace().Msg("handlePost")
+	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
 	if config.RequireAuthHeader() {
 		if !isAuthHeaderAllowed(request) {
-			log.Warn().Msg("unauthorized header")
+			log.Warn().Str("requestId", requestId).Msg("unauthorized header")
 			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
@@ -119,79 +132,80 @@ func handlePost(writer http.ResponseWriter, request *http.Request) {
 	var err error
 	defer request.Body.Close()
 	if data, err = io.ReadAll(request.Body); err != nil {
-		log.Error().Err(err).Msg("error on reading request.Body")
+		log.Error().Str("requestId", requestId).Err(err).Msg("error on reading request.Body")
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	var signal signals.SignalEvent
 	if signal, err = signals.ParseSignal(data); err != nil {
-		log.Warn().RawJSON("data", data).Err(err).Msg("user provided invalid json")
+		log.Warn().Str("requestId", requestId).RawJSON("data", data).Err(err).Msg("user provided invalid json")
 		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	if config.RequireSignalKey() {
 		if !isObjectAuthorized(signal) {
-			log.Warn().Str("key", signal.Key).Msg("invalid signal key provided")
+			log.Warn().Str("requestId", requestId).Str("key", signal.Key).Msg("invalid signal key provided")
 			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
 	}
 
-	if err = signals.Store(signal); err != nil {
-		log.Error().Err(err).Msg("failed to store signal")
+	if err = signals.Store(signal, ctx); err != nil {
+		log.Error().Str("requestId", requestId).Err(err).Msg("failed to store signal")
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	responseData, _ := signals.SignalToData(signal)
-	log.Info().RawJSON("signal", responseData).Msg("store signal succeeded")
+	log.Info().Str("requestId", requestId).RawJSON("signal", responseData).Msg("store signal succeeded")
 	writer.Header().Add(headerContentType, contentTypeJson)
 	writer.WriteHeader(http.StatusOK)
 	writer.Write(responseData)
 }
 
-func handleGet(writer http.ResponseWriter, request *http.Request) {
+func handleGet(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
 	log.Trace().Msg("handleGet")
+	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
 	// make this required for GET requests, POST can be configured optional
 	if !isAuthHeaderAllowed(request) {
-		log.Warn().Msg("unauthorized header")
+		log.Warn().Str("requestId", requestId).Msg("unauthorized header")
 		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 	ticker := request.URL.Query().Get(getParameterTicker)
 	if ticker == "" {
-		log.Warn().Msg("no `ticker` parameter - assuming healthcheck")
+		log.Warn().Str("requestId", requestId).Msg("no `ticker` parameter - assuming healthcheck")
 		writer.Header().Add(headerContentType, contentTypeText)
 		writer.WriteHeader(http.StatusOK)
 		writer.Write([]byte(http.StatusText(http.StatusOK)))
 		return
 	}
 	if !validTicker(ticker) {
-		log.Warn().Str(getParameterTicker, ticker).Msg("client provided invalid ticker")
+		log.Warn().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("client provided invalid ticker")
 		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 	var results []signals.SignalEvent
 	var err error
 	var data []byte
-	log.Debug().Str(getParameterTicker, ticker).Msg("fetching signals by ticker...")
-	results, err = signals.GetByTicker(ticker)
+	log.Debug().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("fetching signals by ticker...")
+	results, err = signals.GetByTicker(ticker, ctx)
 	if err != nil {
-		log.Error().Str(getParameterTicker, ticker).Err(err).Msg("failed to query ticker")
+		log.Error().Str("requestId", requestId).Str(getParameterTicker, ticker).Err(err).Msg("failed to query ticker")
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	if len(results) == 0 {
-		log.Warn().Str("ticker", ticker).Msg("no results for ticker")
+		log.Warn().Str("requestId", requestId).Str("ticker", ticker).Msg("no results for ticker")
 		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
 	}
 	log.Info().Str(getParameterTicker, ticker).Int("total", len(results)).Msg("successfully fetched signals")
 	data, err = signals.SignalsToData(results)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to serialize signals")
+		log.Error().Str("requestId", requestId).Err(err).Msg("failed to serialize signals")
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -200,10 +214,14 @@ func handleGet(writer http.ResponseWriter, request *http.Request) {
 	writer.Write(data)
 }
 
-func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request) {
+func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
 	log.Trace().Msg("allowedOperations")
-	return map[string]func(writer http.ResponseWriter, request *http.Request){
+	return map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context){
 		http.MethodPost: handlePost,
 		http.MethodGet:  handleGet,
 	}
+}
+
+func createContext(requestId string) context.Context {
+	return context.WithValue(context.Background(), config.RequestIdKey(), requestId)
 }
