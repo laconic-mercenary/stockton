@@ -85,7 +85,12 @@ az functionapp create -n stockton-jpe01-storage \
   --storage-account stocktonjpe01storage
 ```
 
-6. build and publish the function
+6. Create the table storage
+```bash
+/bin/bash ./infra/create-table.sh
+```
+
+7. build and publish the function
 
 ```bash
 mvn clean package azure-functions:deploy

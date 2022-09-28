@@ -8,3 +8,7 @@ Utilizes Azure Functions along with Queue and Table and Blob Storage.
 
 See [TEST README](./tests/README.md).
 
+# DEPLOYMENT
+
+* For Gateway, see [Gateway](./gateway/README.md).
+* For Storage, see [Storage](./storage/README.md).

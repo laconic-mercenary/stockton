@@ -5,7 +5,7 @@ set -euf -o pipefail
 az login
 
 STORAGE_ACCOUNT_NAME='stocktonjpe01storage'
-STORAGE_ACCOUNT_KEY='sduHCwRYWeSNXQqgzVFEb+6StYMD7RCav4OrAZDIn5g/zxiyxfKuXSIOagQU9uVRXyj+gRHtk5RN+ASt88uXwg=='
+STORAGE_ACCOUNT_KEY=`cat ./.account-key`
 STORAGE_ACCOUNT_TABLE_ENDPOINT=`az storage account show --name stocktonjpe01storage | jq '.primaryEndpoints.table'`
 DATE_START=`date '+%Y-%m-%d'T'%H:%M'Z''`
 DATE_END=`date -v +10y '+%Y-%m-%d'T'%H:%M'Z''`

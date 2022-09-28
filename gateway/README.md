@@ -50,9 +50,14 @@ docker-compose up --build
 
 ## Install
 
-1. login
+1a. login
 ```bash
 az login
+```
+
+1b. you may need to use this instead - TENANT_ID can be found in the portal
+```bash
+az login --tenant <TENANT_ID>
 ```
 
 2. list subscriptions
@@ -96,6 +101,10 @@ GOOS=linux GOARCH=amd64 go build cmd/api.go
 ```bash
 func azure functionapp publish stockton-jpe01-gateway --custom
 ```
+
+## REDEPLOYING
+
+Repeat steps #1, #2, #3, #7 and #8 - in that order.
 
 # NEW PROJECT
 
