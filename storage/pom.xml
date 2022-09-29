@@ -97,7 +97,7 @@
                     <appServicePlanName>JapanEastLinuxDynamicPlan</appServicePlanName>
                     <region>japaneast</region>
                     <pricingTier>consumption</pricingTier>
-                    <disableAppInsights></disableAppInsights>
+                    <!-- disableAppInsights></disableAppInsights-->
                     <runtime>
                         <os>linux</os>
                         <javaVersion>11</javaVersion>
