@@ -1,7 +1,10 @@
 package net.revanchism.mlcs.stockton;
 
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -21,6 +24,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.HttpMethod;
 import com.microsoft.azure.functions.HttpRequestMessage;
+import com.microsoft.azure.functions.HttpResponseMessage;
+import com.microsoft.azure.functions.HttpStatus;
 import com.microsoft.azure.functions.OutputBinding;
 import com.microsoft.azure.functions.annotation.AuthorizationLevel;
 import com.microsoft.azure.functions.annotation.BindingName;
@@ -47,6 +52,8 @@ public class Function {
     private static final Comparator<Signal> SORT_REVERSE_ROWKEY = Comparator.comparing(Signal::getRowKey).reversed();
 
     private static final String CRON_DELETE = "0 30 2 * * *";
+
+    private static final Duration STORAGE_TIMEOUT = Duration.ofSeconds(30L);
 
     private static Signal fromMessage(final String signalMessage) throws JacksonException {
         return new ObjectMapper().readValue(signalMessage, Signal.class);
@@ -81,6 +88,17 @@ public class Function {
         final String userProvidedAuthKey = headers.get(authHeader);
         final String authKey = Config.getAuthHeaderKey();
         return authKey.equals(userProvidedAuthKey);
+    }
+
+    private static String listToJson(List<String> list) {
+        final StringBuilder json = new StringBuilder();
+        json.append("[");
+        list.stream().forEach(item -> json.append(item).append(","));
+        if (json.length() > 1) {
+            json.deleteCharAt(json.lastIndexOf(","));
+        }
+        json.append("]");
+        return json.toString();
     }
 
     private static void logRequestDuration(final long startMillis, 
@@ -120,7 +138,7 @@ public class Function {
                                                                 .buildClient();
             final String filter = String.format("RowKey le '%s'", expiry);
             final ListEntitiesOptions options = new ListEntitiesOptions().setFilter(filter);
-            client.listEntities(options, null, null)
+            client.listEntities(options, STORAGE_TIMEOUT, null)
                 .stream()
                 .forEach(entity -> { 
                     if (logger.isLoggable(Level.FINE)) {
@@ -129,9 +147,51 @@ public class Function {
                     client.deleteEntity(entity.getPartitionKey(), entity.getRowKey());
                     counter.incrementAndGet();
                 });
-            logger.info(String.format("deleted %d entries", counter.get()));
-            logRequestDuration(current, requestId, logger);
         }
+        logger.info(String.format("deleted %d entries", counter.get()));
+        logRequestDuration(current, requestId, logger);
+    }
+
+    @FunctionName("stockton-get-tickers")
+    public HttpResponseMessage getTickers(@HttpTrigger(name = "getTickers",
+                                                        methods = { HttpMethod.GET }, 
+                                                        authLevel = AuthorizationLevel.ANONYMOUS,
+                                                        route = "signals/tickers") 
+                                            final HttpRequestMessage<Optional<Signal>> request,
+                                            final ExecutionContext context) {
+        final Logger logger = context.getLogger();
+        final long current = System.currentTimeMillis();
+        final String requestId = generateRequestId();
+        List<String> results = Collections.emptyList();
+
+        if (!isAuthorized(request.getHeaders(), logger)) {
+            // this looks silly but, AuthorizationLevel seems painful
+            log("user not authorized for request - returning empty response", requestId, logger, Level.WARNING);
+            return request.createResponseBuilder(HttpStatus.UNAUTHORIZED)
+                            .header("Content-Type", "text/plain")
+                            .body(HttpStatus.UNAUTHORIZED.toString())
+                            .build();
+        }
+        
+        if (Config.useStubbedStorage()) {
+            log("using stubbed storage - will not delete any signals", requestId, logger, Level.WARNING);
+        } else {
+            final TableClient client =  new TableClientBuilder().connectionString(Config.getSignalsTableConnectionString())
+                                                                .tableName(TABLE_NAME)
+                                                                .buildClient();
+            final ListEntitiesOptions options = new ListEntitiesOptions().setSelect(Arrays.asList("ticker"));
+            results = client.listEntities(options , STORAGE_TIMEOUT, null)
+                            .stream()
+                            .map(entity -> entity.getPartitionKey()) // partitionKey ... which should be the ticker
+                            .distinct()
+                            .sorted()
+                            .collect(Collectors.toList());
+        }
+        logRequestDuration(current, requestId, logger);
+        return request.createResponseBuilder(HttpStatus.ACCEPTED)
+                        .header("Content-Type", "application/json")
+                        .body(listToJson(results))
+                        .build();
     }
 
     @FunctionName("stockton-get-signals")
