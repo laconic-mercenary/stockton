@@ -90,7 +90,7 @@ func getSignalMessage(signal SignalEvent) (string, error) {
 
 func addRequestId(signal *SignalEvent, requestId string) {
 	if len(signal.Notes) > 0 {
-		signal.Notes = ";requestId=" + requestId
+		signal.Notes = signal.Notes + ";requestId=" + requestId
 	} else {
 		signal.Notes = "requestId=" + requestId
 	}

@@ -98,7 +98,7 @@ func isAuthHeaderAllowed(request *http.Request) bool {
 			return false
 		}
 		if len(auth) != 1 {
-			log.Warn().Strs("auth_values", auth).Msg("multiple auth headers specified - access denied")
+			log.Warn().Strs("authValues", auth).Msg("multiple auth headers specified - access denied")
 			return false
 		}
 		userProvidedToken := auth[0]
