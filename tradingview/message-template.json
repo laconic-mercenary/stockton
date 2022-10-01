@@ -1,8 +1,0 @@
-{
-    "action" : "{{strategy.order.action}}",
-    "ticker" : "{{ticker}}",
-    "key" : "(KEY HERE)",
-    "notes" : "algVer=?;posSize={{strategy.position_size}};exchange={{exchange}};vol={{volume}};open={{open}}",
-    "close" : {{close}},
-    "contracts" : {{strategy.order.contracts}}
-}

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/base64"
 	"net/url"
 	"os"
 	"strconv"
@@ -20,8 +19,6 @@ const (
 	envAllowedOrigin              = "ALLOWED_ORIGIN"
 	envRequireSignalKey           = "REQUIRE_SIGNAL_KEY"
 	envRequireAuthHeader          = "REQUIRE_AUTH_HEADER"
-	envStorageAddress             = "STORAGE_ADDRESS"
-	envStorageToken               = "STORAGE_TOKEN"
 	envSignalQueueUrl             = "SIGNAL_QUEUE_URL"
 	envSignalQueueAccountName     = "SIGNAL_QUEUE_ACCOUNT_NAME"
 	envSignalQueueAccountKey      = "SIGNAL_QUEUE_ACCOUNT_KEY"
@@ -111,20 +108,6 @@ func AllowedOrigin() (domain string, allowAny bool) {
 	domain = lookupOrFail(envAllowedOrigin)
 	allowAny = (domain == allowAnyOrigin)
 	return
-}
-
-func StorageAddress() string {
-	return lookupOrFail(envStorageAddress)
-}
-
-func StorageToken() string {
-	token := lookupOrFail(envStorageToken)
-	data, err := base64.StdEncoding.DecodeString(token)
-	if err != nil {
-		log.Fatal().Err(err).Str("token", token).Msg("failed to decode base64 token")
-	}
-	log.Debug().Bytes("data", data).Str("b64token", token).Msg("storage token information")
-	return strings.TrimSpace(string(data))
 }
 
 func SignalQueueUrl() url.URL {

@@ -22,8 +22,6 @@ const (
 	headerOrigin       = "Origin"
 	headerAuthToken    = "X-Gateway-Allow-Token"
 	contentTypeJson    = "application/json"
-	contentTypeText    = "text/plain"
-	getParameterTicker = "ticker"
 )
 
 var validTicker = regexp.MustCompile(`^[a-zA-Z]{1,75}$`).MatchString
@@ -165,60 +163,60 @@ func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.C
 	writer.Write(responseData)
 }
 
-func handleGet(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
-	log.Trace().Msg("handleGet")
-	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
-	// make this required for GET requests, POST can be configured optional
-	if !isAuthHeaderAllowed(request) {
-		log.Warn().Str("requestId", requestId).Msg("unauthorized header")
-		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-		return
-	}
-	ticker := request.URL.Query().Get(getParameterTicker)
-	if ticker == "" {
-		log.Warn().Str("requestId", requestId).Msg("no `ticker` parameter - assuming healthcheck")
-		writer.Header().Add(headerContentType, contentTypeText)
-		writer.WriteHeader(http.StatusOK)
-		writer.Write([]byte(http.StatusText(http.StatusOK)))
-		return
-	}
-	if !validTicker(ticker) {
-		log.Warn().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("client provided invalid ticker")
-		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-	var results []signals.SignalEvent
-	var err error
-	var data []byte
-	log.Debug().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("fetching signals by ticker...")
-	results, err = signals.GetByTicker(ticker, ctx)
-	if err != nil {
-		log.Error().Str("requestId", requestId).Str(getParameterTicker, ticker).Err(err).Msg("failed to query ticker")
-		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	if len(results) == 0 {
-		log.Warn().Str("requestId", requestId).Str("ticker", ticker).Msg("no results for ticker")
-		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-		return
-	}
-	log.Info().Str(getParameterTicker, ticker).Int("total", len(results)).Msg("successfully fetched signals")
-	data, err = signals.SignalsToData(results)
-	if err != nil {
-		log.Error().Str("requestId", requestId).Err(err).Msg("failed to serialize signals")
-		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	writer.Header().Add(headerContentType, contentTypeJson)
-	writer.WriteHeader(http.StatusOK)
-	writer.Write(data)
-}
+// func handleGet(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
+// 	log.Trace().Msg("handleGet")
+// 	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
+// 	// make this required for GET requests, POST can be configured optional
+// 	if !isAuthHeaderAllowed(request) {
+// 		log.Warn().Str("requestId", requestId).Msg("unauthorized header")
+// 		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+// 		return
+// 	}
+// 	ticker := request.URL.Query().Get(getParameterTicker)
+// 	if ticker == "" {
+// 		log.Warn().Str("requestId", requestId).Msg("no `ticker` parameter - assuming healthcheck")
+// 		writer.Header().Add(headerContentType, contentTypeText)
+// 		writer.WriteHeader(http.StatusOK)
+// 		writer.Write([]byte(http.StatusText(http.StatusOK)))
+// 		return
+// 	}
+// 	if !validTicker(ticker) {
+// 		log.Warn().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("client provided invalid ticker")
+// 		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+// 		return
+// 	}
+// 	var results []signals.SignalEvent
+// 	var err error
+// 	var data []byte
+// 	log.Debug().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("fetching signals by ticker...")
+// 	results, err = signals.GetByTicker(ticker, ctx)
+// 	if err != nil {
+// 		log.Error().Str("requestId", requestId).Str(getParameterTicker, ticker).Err(err).Msg("failed to query ticker")
+// 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	if len(results) == 0 {
+// 		log.Warn().Str("requestId", requestId).Str("ticker", ticker).Msg("no results for ticker")
+// 		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+// 		return
+// 	}
+// 	log.Info().Str(getParameterTicker, ticker).Int("total", len(results)).Msg("successfully fetched signals")
+// 	data, err = signals.SignalsToData(results)
+// 	if err != nil {
+// 		log.Error().Str("requestId", requestId).Err(err).Msg("failed to serialize signals")
+// 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+// 		return
+// 	}
+// 	writer.Header().Add(headerContentType, contentTypeJson)
+// 	writer.WriteHeader(http.StatusOK)
+// 	writer.Write(data)
+// }
 
 func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
 	log.Trace().Msg("allowedOperations")
 	return map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context){
 		http.MethodPost: handlePost,
-		http.MethodGet:  handleGet,
+		//http.MethodGet:  handleGet,
 	}
 }
 

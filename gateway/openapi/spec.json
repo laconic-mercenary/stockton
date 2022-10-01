@@ -8,21 +8,75 @@
       "servers": [
          {
             "url": "http://localhost:8098",
-            "description": "Local docker-compose server"
+            "description": "Signal Gateway"
          },
          {
-            "url": "http://api.example.com/v1",
-            "description": "Optional server description, e.g. Main (production) server"
+            "url": "http://localhost:8099",
+            "description": "CRUD signal storage"
          }
       ],
       "paths": {
-         "/api/gateway": {
+         "/api/signals": {
+            "get": {
+               "summary": "Get all tickers in the database",
+               "description": "Get all tickers in the database",
+               "responses": {
+                  "200": {
+                     "description": "All tickers in the database - sorted, distinct",
+                     "content": {
+                        "application/json": {
+                           "schema": {
+                              "type": "array",
+                              "items": {
+                                 "type": "string"
+                              }
+                           }
+                        }
+                     }
+                  },
+                  "400": {
+                     "description": "If server received a malformed request.",
+                     "content": {
+                        "text/plain": {
+                           "schema": {
+                              "type": "string",
+                              "example": "bad request"
+                           }
+                        }
+                     }
+                  },
+                  "401": {
+                     "description": "If key is invalid.",
+                     "content": {
+                        "text/plain": {
+                           "schema": {
+                              "type": "string",
+                              "example": "not authorized"
+                           }
+                        }
+                     }
+                  },
+                  "5XX": {
+                     "description": "If an unexpected server error happens.",
+                     "content": {
+                        "text/plain": {
+                           "schema": {
+                              "type": "string",
+                              "example": "server error"
+                           }
+                        }
+                     }
+                  }
+               }
+            }
+         },
+         "/api/signals/{ticker}": {
             "get": {
                "summary": "Stock ticker or crypto identifier",
                "description": "Stock ticker or crypto identifier",
                "parameters": [
                   {
-                     "in": "query",
+                     "in": "path",
                      "name": "ticker",
                      "schema": {
                         "type": "string"
@@ -86,7 +140,9 @@
                      }
                   }
                }
-            },
+            }
+         },
+         "/api/gateway": {
             "post": {
                "summary": "Stores a signal object from Trading View.",
                "description": "API that receives signal POST requests from Trading View and stores them for later analysis.",
@@ -218,4 +274,4 @@
             }
          }
       }
-}
+   }

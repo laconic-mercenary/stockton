@@ -1,0 +1,8 @@
+{
+    "action" : "{{strategy.order.action}}",
+    "ticker" : "{{ticker}}",
+    "key" : "yR4WnGvoC5po4IYNjipMzdHZ7jzw5eF",
+    "notes" : "algVer=20220830;posSize={{strategy.position_size}};exchange={{exchange}};vol={{volume}};open={{open}};comment={{comment}}",
+    "close" : {strategy.order.price}},
+    "contracts" : {{strategy.order.contracts}}
+}

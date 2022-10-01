@@ -164,9 +164,11 @@ public class Function {
         final String requestId = generateRequestId();
         List<String> results = Collections.emptyList();
 
+        log("request receieved", requestId, logger, Level.FINE);
+
         if (!isAuthorized(request.getHeaders(), logger)) {
             // this looks silly but, AuthorizationLevel seems painful
-            log("user not authorized for request - returning empty response", requestId, logger, Level.WARNING);
+            log("user not authorized for request", requestId, logger, Level.WARNING);
             return request.createResponseBuilder(HttpStatus.UNAUTHORIZED)
                             .header("Content-Type", "text/plain")
                             .body(HttpStatus.UNAUTHORIZED.toString())
@@ -214,6 +216,8 @@ public class Function {
         final String requestId = generateRequestId();
         final long startMillis = System.currentTimeMillis();
 
+        log("request receieved", requestId, logger, Level.FINE);
+
         if (!isAuthorized(request.getHeaders(), logger)) {
             // this looks silly but, AuthorizationLevel seems painful
             log("user not authorized for request - returning empty response", requestId, logger, Level.WARNING);
@@ -224,7 +228,7 @@ public class Function {
                                         .append(ticker)
                                         .append(" resulted in ")
                                         .append(signals.length)
-                                        .append(" signals")
+                                        .append(" signal(s)")
                                         .toString(), requestId, logger, Level.INFO);
 
         final Signal[] results = Arrays.asList(signals)
@@ -292,7 +296,7 @@ public class Function {
             outputSignal.setValue(queueSignal);
         }
 
-        log("new signal successfully stored", requestId, logger, Level.INFO);
+        log("new signal successfully stored: " + queueSignal.toString(), requestId, logger, Level.INFO);
         logRequestDuration(startMillis, requestId, logger);
     }
 }
