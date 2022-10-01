@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
+import com.azure.core.util.logging.LogLevel;
 import com.azure.data.tables.TableClient;
 import com.azure.data.tables.TableClientBuilder;
 import com.azure.data.tables.models.ListEntitiesOptions;
@@ -172,7 +173,7 @@ public class Function {
     @FunctionName("stockton-get-tickers")
     public HttpResponseMessage getTickers(@HttpTrigger(name = "getTickers",
                                                         methods = { HttpMethod.GET, HttpMethod.OPTIONS }, 
-                                                        authLevel = AuthorizationLevel.ANONYMOUS,
+                                                        authLevel = AuthorizationLevel.FUNCTION,
                                                         route = "storage/tickers")
                                             final HttpRequestMessage<Optional<Signal>> request,
                                             final ExecutionContext context) {
@@ -204,12 +205,21 @@ public class Function {
                                                                 .tableName(TABLE_NAME)
                                                                 .buildClient();
             final ListEntitiesOptions options = new ListEntitiesOptions().setSelect(Arrays.asList("PartitionKey"));
-            results = client.listEntities(options , STORAGE_TIMEOUT, null)
-                            .stream()
-                            .map(entity -> entity.getPartitionKey()) // partitionKey ... which should be the ticker
-                            .distinct()
-                            .sorted()
-                            .collect(Collectors.toList());
+            try {
+                results = client.listEntities(options , STORAGE_TIMEOUT, null)
+                                .stream()
+                                .map(entity -> entity.getPartitionKey()) // partitionKey ... which should be the ticker
+                                .distinct()
+                                .sorted()
+                                .collect(Collectors.toList());
+            } catch (final Exception ex) {
+                log(ex.getMessage(), requestId, logger, Level.SEVERE);
+                ex.printStackTrace();
+                return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR))
+                        .header("Content-Type", "text/plain")
+                        .body(HttpStatus.INTERNAL_SERVER_ERROR.name())
+                        .build();
+            }
         }
         logRequestDuration(current, requestId, logger);
         return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.OK))
@@ -221,7 +231,7 @@ public class Function {
     @FunctionName("stockton-get-signals")
     public HttpResponseMessage getSignals(@HttpTrigger(name = "getSignalsByTicker",
                                             methods = { HttpMethod.GET, HttpMethod.OPTIONS }, 
-                                            authLevel = AuthorizationLevel.ANONYMOUS,
+                                            authLevel = AuthorizationLevel.FUNCTION,
                                             route = "storage/signals/{ticker}") 
                                 final HttpRequestMessage<Optional<Signal>> request,
                                 @BindingName("ticker") 

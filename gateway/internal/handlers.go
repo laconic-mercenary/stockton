@@ -22,6 +22,7 @@ const (
 	headerAuthToken   = "X-Gateway-Allow-Token"
 	contentTypeJson   = "application/json"
 	contentTypeText   = "text/plain"
+	keyRequestId      = "requestId"
 )
 
 func Gateway(writer http.ResponseWriter, request *http.Request) {
@@ -53,7 +54,7 @@ func Gateway(writer http.ResponseWriter, request *http.Request) {
 func logRequestDuration(start int64, requestId string) {
 	log.Trace().Msg("logRequestDuration")
 	end := time.Now().UnixMilli()
-	log.Info().Int64("elapsedMillis", end-start).Str("requestId", requestId).Msg("request finished")
+	log.Info().Int64("elapsedMillis", end-start).Str(keyRequestId, requestId).Msg("request finished")
 }
 
 func logRequest(request *http.Request) {
@@ -91,7 +92,7 @@ func isOriginAllowed(request *http.Request) bool {
 	return true
 }
 
-func isAuthHeaderAllowed(request *http.Request) bool {
+func isAuthHeaderAllowed(request *http.Request, requestId string) bool {
 	log.Trace().Msg("isAuthHeaderAllowed")
 	log.Debug().Msg("checking auth token in header...")
 	secureToken, allowAll := config.AuthenticationToken()
@@ -123,14 +124,14 @@ func isObjectAuthorized(signal signals.SignalEvent) bool {
 }
 
 func setCORSHeaders(writer http.ResponseWriter, allHeaders bool) {
-	log.Trace().Msg("setDefaultHeaders")
+	log.Trace().Msg("setCORSHeaders")
 	origin, allowAny := config.AllowedOrigin()
 	if allowAny {
 		origin = "*"
 	}
 	writer.Header().Set("Access-Control-Allow-Origin", origin)
 	if allHeaders {
-		writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		writer.Header().Set("Access-Control-Allow-Methods", http.MethodPost+","+http.MethodOptions)
 		writer.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, "+headerAuthToken)
 		writer.Header().Set("Access-Control-Max-Age", "600") // 10 minutes
 	}
@@ -141,7 +142,6 @@ func allowedOperations() map[string]func(writer http.ResponseWriter, request *ht
 	return map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context){
 		http.MethodPost:    handlePost,
 		http.MethodOptions: handleOptions,
-		//http.MethodGet:  handleGet,
 	}
 }
 
@@ -170,8 +170,8 @@ func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.C
 	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
 	setCORSHeaders(writer, false)
 	if config.RequireAuthHeader() {
-		if !isAuthHeaderAllowed(request) {
-			log.Warn().Str("requestId", requestId).Msg("unauthorized header")
+		if !isAuthHeaderAllowed(request, requestId) {
+			log.Warn().Str(keyRequestId, requestId).Msg("unauthorized header")
 			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
@@ -181,84 +181,35 @@ func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.C
 	var err error
 	defer request.Body.Close()
 	if data, err = io.ReadAll(request.Body); err != nil {
-		log.Error().Str("requestId", requestId).Err(err).Msg("error on reading request.Body")
+		log.Error().Str(keyRequestId, requestId).Err(err).Msg("error on reading request.Body")
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	var signal signals.SignalEvent
 	if signal, err = signals.ParseSignal(data); err != nil {
-		log.Warn().Str("requestId", requestId).RawJSON("data", data).Err(err).Msg("user provided invalid json")
+		log.Warn().Str(keyRequestId, requestId).RawJSON("data", data).Err(err).Msg("user provided invalid json")
 		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	if config.RequireSignalKey() {
 		if !isObjectAuthorized(signal) {
-			log.Warn().Str("requestId", requestId).Str("key", signal.Key).Msg("invalid signal key provided")
+			log.Warn().Str(keyRequestId, requestId).Str("key", signal.Key).Msg("invalid signal key provided")
 			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
 	}
 
 	if err = signals.Store(signal, ctx); err != nil {
-		log.Error().Str("requestId", requestId).Err(err).Msg("failed to store signal")
+		log.Error().Str(keyRequestId, requestId).Err(err).Msg("failed to store signal")
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	responseData, _ := signals.SignalToData(signal)
-	log.Info().Str("requestId", requestId).RawJSON("signal", responseData).Msg("store signal succeeded")
+	log.Info().Str(keyRequestId, requestId).RawJSON("signal", responseData).Msg("store signal succeeded")
 	writer.Header().Add(headerContentType, contentTypeJson)
 	writer.WriteHeader(http.StatusOK)
 	writer.Write(responseData)
 }
-
-// func handleGet(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
-// 	log.Trace().Msg("handleGet")
-// 	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
-// 	// make this required for GET requests, POST can be configured optional
-// 	if !isAuthHeaderAllowed(request) {
-// 		log.Warn().Str("requestId", requestId).Msg("unauthorized header")
-// 		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-// 		return
-// 	}
-// 	ticker := request.URL.Query().Get(getParameterTicker)
-// 	if ticker == "" {
-// 		log.Warn().Str("requestId", requestId).Msg("no `ticker` parameter - assuming healthcheck")
-// 		writer.Header().Add(headerContentType, contentTypeText)
-// 		writer.WriteHeader(http.StatusOK)
-// 		writer.Write([]byte(http.StatusText(http.StatusOK)))
-// 		return
-// 	}
-// 	if !validTicker(ticker) {
-// 		log.Warn().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("client provided invalid ticker")
-// 		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-// 		return
-// 	}
-// 	var results []signals.SignalEvent
-// 	var err error
-// 	var data []byte
-// 	log.Debug().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("fetching signals by ticker...")
-// 	results, err = signals.GetByTicker(ticker, ctx)
-// 	if err != nil {
-// 		log.Error().Str("requestId", requestId).Str(getParameterTicker, ticker).Err(err).Msg("failed to query ticker")
-// 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-// 		return
-// 	}
-// 	if len(results) == 0 {
-// 		log.Warn().Str("requestId", requestId).Str("ticker", ticker).Msg("no results for ticker")
-// 		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-// 		return
-// 	}
-// 	log.Info().Str(getParameterTicker, ticker).Int("total", len(results)).Msg("successfully fetched signals")
-// 	data, err = signals.SignalsToData(results)
-// 	if err != nil {
-// 		log.Error().Str("requestId", requestId).Err(err).Msg("failed to serialize signals")
-// 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-// 		return
-// 	}
-// 	writer.Header().Add(headerContentType, contentTypeJson)
-// 	writer.WriteHeader(http.StatusOK)
-// 	writer.Write(data)
-// }
