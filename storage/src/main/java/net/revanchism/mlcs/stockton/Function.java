@@ -16,7 +16,6 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 
-import com.azure.core.util.logging.LogLevel;
 import com.azure.data.tables.TableClient;
 import com.azure.data.tables.TableClientBuilder;
 import com.azure.data.tables.models.ListEntitiesOptions;
@@ -47,8 +46,6 @@ public class Function {
     private static final String TABLE_CONNECTION_STRING = Config.ENV_SIGNALS_TABLE_CONNSTR;
 
     private static final String QUEUE_CONNECTION_STRING = "SignalsQueueConnectionString";
-
-    private static final Signal[] EMPTY_RESPONSE = new Signal[0];
 
     private static final Comparator<Signal> SORT_REVERSE_ROWKEY = Comparator.comparing(Signal::getRowKey).reversed();
 
@@ -91,7 +88,7 @@ public class Function {
         return authKey.equals(userProvidedAuthKey);
     }
 
-    private static String listToJson(List<?> list) {
+    private static String listToJson(final List<?> list) {
         final StringBuilder json = new StringBuilder();
         json.append("{").append("\"results\":").append("[");
         list.stream().forEach(item -> {
@@ -124,7 +121,7 @@ public class Function {
         }
     }
 
-    private static HttpResponseMessage.Builder wrapCORS(HttpMethod method, HttpResponseMessage.Builder builder) {
+    private static HttpResponseMessage.Builder wrapCORS(final HttpMethod method, final HttpResponseMessage.Builder builder) {
         if (HttpMethod.OPTIONS.equals(method)) {
             builder.header("Access-Control-Allow-Methods", HttpMethod.GET.name() + "," + HttpMethod.OPTIONS.name());
 		    builder.header("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, " + Config.getAuthHeaderName());
