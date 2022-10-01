@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
-	"regexp"
 	"strings"
 	"time"
 
@@ -18,22 +17,23 @@ import (
 )
 
 const (
-	headerContentType  = "Content-Type"
-	headerOrigin       = "Origin"
-	headerAuthToken    = "X-Gateway-Allow-Token"
-	contentTypeJson    = "application/json"
-	contentTypeText    = "text/plain"
-	getParameterTicker = "ticker"
+	headerContentType = "Content-Type"
+	headerOrigin      = "Origin"
+	headerAuthToken   = "X-Gateway-Allow-Token"
+	contentTypeJson   = "application/json"
+	contentTypeText   = "text/plain"
+	keyRequestId      = "requestId"
 )
-
-var validTicker = regexp.MustCompile(`^[a-zA-Z]{1,75}$`).MatchString
 
 func Gateway(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("Gateway")
 	timestampStart := time.Now().UnixMilli()
-	requestId := uuid.New().String()
-	ctx := createContext(requestId)
 	logRequest(request)
+	if config.HoneyPotMode() {
+		log.Warn().Msg("HONEY POT MODE - will not handle requests")
+		handleHoneyPot(writer, request)
+		return
+	}
 	if !isOriginAllowed(request) {
 		log.Warn().Msg("request not authorized")
 		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -45,13 +45,16 @@ func Gateway(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
+	requestId := uuid.New().String()
+	ctx := createContext(requestId)
 	op(writer, request, ctx)
 	logRequestDuration(timestampStart, requestId)
 }
 
 func logRequestDuration(start int64, requestId string) {
+	log.Trace().Msg("logRequestDuration")
 	end := time.Now().UnixMilli()
-	log.Info().Int64("elapsedMillis", end-start).Str("requestId", requestId).Msg("request finished")
+	log.Info().Int64("elapsedMillis", end-start).Str(keyRequestId, requestId).Msg("request finished")
 }
 
 func logRequest(request *http.Request) {
@@ -66,6 +69,7 @@ func logRequest(request *http.Request) {
 }
 
 func isOriginAllowed(request *http.Request) bool {
+	log.Trace().Msg("isOriginAllowed")
 	log.Debug().Msg("checking origin...")
 	allowedDomain, allowAny := config.AllowedOrigin()
 	if !allowAny {
@@ -88,7 +92,8 @@ func isOriginAllowed(request *http.Request) bool {
 	return true
 }
 
-func isAuthHeaderAllowed(request *http.Request) bool {
+func isAuthHeaderAllowed(request *http.Request, requestId string) bool {
+	log.Trace().Msg("isAuthHeaderAllowed")
 	log.Debug().Msg("checking auth token in header...")
 	secureToken, allowAll := config.AuthenticationToken()
 	if !allowAll {
@@ -111,18 +116,62 @@ func isAuthHeaderAllowed(request *http.Request) bool {
 }
 
 func isObjectAuthorized(signal signals.SignalEvent) bool {
+	log.Trace().Msg("isObjectAuthorized")
 	if secureToken, allowAll := config.AuthenticationToken(); !allowAll {
 		return (secureToken == signal.Key)
 	}
 	return true
 }
 
+func setCORSHeaders(writer http.ResponseWriter, allHeaders bool) {
+	log.Trace().Msg("setCORSHeaders")
+	origin, allowAny := config.AllowedOrigin()
+	if allowAny {
+		origin = "*"
+	}
+	writer.Header().Set("Access-Control-Allow-Origin", origin)
+	if allHeaders {
+		writer.Header().Set("Access-Control-Allow-Methods", http.MethodPost+","+http.MethodOptions)
+		writer.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, "+headerAuthToken)
+		writer.Header().Set("Access-Control-Max-Age", "600") // 10 minutes
+	}
+}
+
+func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
+	log.Trace().Msg("allowedOperations")
+	return map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context){
+		http.MethodPost:    handlePost,
+		http.MethodOptions: handleOptions,
+	}
+}
+
+func createContext(requestId string) context.Context {
+	log.Trace().Msg("createContext")
+	return context.WithValue(context.Background(), config.RequestIdKey(), requestId)
+}
+
+func handleHoneyPot(writer http.ResponseWriter, request *http.Request) {
+	log.Trace().Msg("handleHoneyPot")
+	writer.Header().Add(headerContentType, contentTypeText)
+	writer.WriteHeader(http.StatusOK)
+	writer.Write([]byte(http.StatusText(http.StatusOK)))
+}
+
+func handleOptions(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
+	log.Trace().Msg("handleOptions")
+	log.Debug().Msg("options handled")
+	setCORSHeaders(writer, true)
+	writer.Header().Add(headerContentType, contentTypeText)
+	writer.WriteHeader(http.StatusNoContent)
+}
+
 func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
 	log.Trace().Msg("handlePost")
 	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
+	setCORSHeaders(writer, false)
 	if config.RequireAuthHeader() {
-		if !isAuthHeaderAllowed(request) {
-			log.Warn().Str("requestId", requestId).Msg("unauthorized header")
+		if !isAuthHeaderAllowed(request, requestId) {
+			log.Warn().Str(keyRequestId, requestId).Msg("unauthorized header")
 			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
@@ -132,96 +181,35 @@ func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.C
 	var err error
 	defer request.Body.Close()
 	if data, err = io.ReadAll(request.Body); err != nil {
-		log.Error().Str("requestId", requestId).Err(err).Msg("error on reading request.Body")
+		log.Error().Str(keyRequestId, requestId).Err(err).Msg("error on reading request.Body")
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	var signal signals.SignalEvent
 	if signal, err = signals.ParseSignal(data); err != nil {
-		log.Warn().Str("requestId", requestId).RawJSON("data", data).Err(err).Msg("user provided invalid json")
+		log.Warn().Str(keyRequestId, requestId).RawJSON("data", data).Err(err).Msg("user provided invalid json")
 		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
 	if config.RequireSignalKey() {
 		if !isObjectAuthorized(signal) {
-			log.Warn().Str("requestId", requestId).Str("key", signal.Key).Msg("invalid signal key provided")
+			log.Warn().Str(keyRequestId, requestId).Str("key", signal.Key).Msg("invalid signal key provided")
 			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
 	}
 
 	if err = signals.Store(signal, ctx); err != nil {
-		log.Error().Str("requestId", requestId).Err(err).Msg("failed to store signal")
+		log.Error().Str(keyRequestId, requestId).Err(err).Msg("failed to store signal")
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	responseData, _ := signals.SignalToData(signal)
-	log.Info().Str("requestId", requestId).RawJSON("signal", responseData).Msg("store signal succeeded")
+	log.Info().Str(keyRequestId, requestId).RawJSON("signal", responseData).Msg("store signal succeeded")
 	writer.Header().Add(headerContentType, contentTypeJson)
 	writer.WriteHeader(http.StatusOK)
 	writer.Write(responseData)
-}
-
-func handleGet(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
-	log.Trace().Msg("handleGet")
-	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
-	// make this required for GET requests, POST can be configured optional
-	if !isAuthHeaderAllowed(request) {
-		log.Warn().Str("requestId", requestId).Msg("unauthorized header")
-		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-		return
-	}
-	ticker := request.URL.Query().Get(getParameterTicker)
-	if ticker == "" {
-		log.Warn().Str("requestId", requestId).Msg("no `ticker` parameter - assuming healthcheck")
-		writer.Header().Add(headerContentType, contentTypeText)
-		writer.WriteHeader(http.StatusOK)
-		writer.Write([]byte(http.StatusText(http.StatusOK)))
-		return
-	}
-	if !validTicker(ticker) {
-		log.Warn().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("client provided invalid ticker")
-		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-	var results []signals.SignalEvent
-	var err error
-	var data []byte
-	log.Debug().Str("requestId", requestId).Str(getParameterTicker, ticker).Msg("fetching signals by ticker...")
-	results, err = signals.GetByTicker(ticker, ctx)
-	if err != nil {
-		log.Error().Str("requestId", requestId).Str(getParameterTicker, ticker).Err(err).Msg("failed to query ticker")
-		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	if len(results) == 0 {
-		log.Warn().Str("requestId", requestId).Str("ticker", ticker).Msg("no results for ticker")
-		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-		return
-	}
-	log.Info().Str(getParameterTicker, ticker).Int("total", len(results)).Msg("successfully fetched signals")
-	data, err = signals.SignalsToData(results)
-	if err != nil {
-		log.Error().Str("requestId", requestId).Err(err).Msg("failed to serialize signals")
-		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	writer.Header().Add(headerContentType, contentTypeJson)
-	writer.WriteHeader(http.StatusOK)
-	writer.Write(data)
-}
-
-func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
-	log.Trace().Msg("allowedOperations")
-	return map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context){
-		http.MethodPost: handlePost,
-		http.MethodGet:  handleGet,
-	}
-}
-
-func createContext(requestId string) context.Context {
-	return context.WithValue(context.Background(), config.RequestIdKey(), requestId)
 }

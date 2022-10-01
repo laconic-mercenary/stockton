@@ -11,30 +11,34 @@ import (
 	"github.com/stockton/internal/config"
 )
 
+const (
+	keyRequestId = "requestId"
+)
+
 func enqueue(signal SignalEvent, ctx context.Context) error {
 	log.Trace().Msg("enqueue")
 	var err error
 	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
-	log.Debug().Str("requestId", requestId).Msg("getting credentials...")
+	log.Debug().Str(keyRequestId, requestId).Msg("getting credentials...")
 	var credential azqueue.Credential
 	credential, err = getCredentials()
 	if err != nil {
 		return err
 	}
 
-	log.Debug().Str("requestId", requestId).Msg("creating pipeline...")
+	log.Debug().Str(keyRequestId, requestId).Msg("creating pipeline...")
 	queueUrl := azqueue.NewQueueURL(config.SignalQueueUrl(), azqueue.NewPipeline(credential, getMessageOptions()))
 
 	queueCtx, cancel := getContext(ctx)
 	defer cancel()
 
-	log.Debug().Str("requestId", requestId).Msg("getting properties...")
+	log.Debug().Str(keyRequestId, requestId).Msg("getting properties...")
 	props, err := getProperties(queueUrl, queueCtx)
 	if err != nil {
 		return err
 	}
 
-	log.Debug().Str("requestId", requestId).Int32("messageCount", props.ApproximateMessagesCount()).Msg("approximate number of messages currently on the queue")
+	log.Debug().Str(keyRequestId, requestId).Int32("messageCount", props.ApproximateMessagesCount()).Msg("approximate number of messages currently on the queue")
 
 	addRequestId(&signal, requestId)
 
@@ -53,7 +57,8 @@ func enqueue(signal SignalEvent, ctx context.Context) error {
 }
 
 func enqueueMessage(signalMessage string, ctx context.Context, queueUrl azqueue.QueueURL) error {
-	log.Debug().Msg("enqueuing message...")
+	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
+	log.Debug().Str(keyRequestId, requestId).Msg("enqueuing message...")
 	var err error
 	var enqueueResult *azqueue.EnqueueMessageResponse
 	var messageUrl azqueue.MessagesURL = queueUrl.NewMessagesURL()
@@ -62,8 +67,7 @@ func enqueueMessage(signalMessage string, ctx context.Context, queueUrl azqueue.
 	if err != nil {
 		return err
 	}
-	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
-	log.Info().Str("requestId", requestId).Str("data", signalMessage).Str("status", enqueueResult.Status()).Str("queueRequestId", enqueueResult.RequestID()).Str("queueMessageId", string(enqueueResult.MessageID)).Msg("enqueued message")
+	log.Info().Str(keyRequestId, requestId).Str("data", signalMessage).Str("status", enqueueResult.Status()).Str("queueRequestId", enqueueResult.RequestID()).Str("queueMessageId", string(enqueueResult.MessageID)).Msg("enqueued message")
 	return nil
 }
 
@@ -90,9 +94,9 @@ func getSignalMessage(signal SignalEvent) (string, error) {
 
 func addRequestId(signal *SignalEvent, requestId string) {
 	if len(signal.Notes) > 0 {
-		signal.Notes = signal.Notes + ";requestId=" + requestId
+		signal.Notes = fmt.Sprintf("%s;%s=%s", signal.Notes, keyRequestId, requestId)
 	} else {
-		signal.Notes = "requestId=" + requestId
+		signal.Notes = fmt.Sprintf("%s=%s", keyRequestId, requestId)
 	}
 }
 
@@ -103,7 +107,7 @@ func getProperties(queueUrl azqueue.QueueURL, ctx context.Context) (*azqueue.Que
 	if err != nil {
 		errorType := err.(azqueue.StorageError).ServiceCode()
 		if errorType == azqueue.ServiceCodeQueueNotFound {
-			log.Warn().Msg("Queue does not exist, creating")
+			log.Warn().Msg("queue does not exist - creating...")
 			_, err = queueUrl.Create(ctx, azqueue.Metadata{})
 			if err != nil {
 				return nil, err

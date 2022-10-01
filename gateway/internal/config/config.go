@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/base64"
 	"net/url"
 	"os"
 	"strconv"
@@ -20,14 +19,13 @@ const (
 	envAllowedOrigin              = "ALLOWED_ORIGIN"
 	envRequireSignalKey           = "REQUIRE_SIGNAL_KEY"
 	envRequireAuthHeader          = "REQUIRE_AUTH_HEADER"
-	envStorageAddress             = "STORAGE_ADDRESS"
-	envStorageToken               = "STORAGE_TOKEN"
 	envSignalQueueUrl             = "SIGNAL_QUEUE_URL"
 	envSignalQueueAccountName     = "SIGNAL_QUEUE_ACCOUNT_NAME"
 	envSignalQueueAccountKey      = "SIGNAL_QUEUE_ACCOUNT_KEY"
 	envSignalQueueMessageTTL      = "SIGNAL_QUEUE_MESSAGE_TTL"
 	envSignalQueueClientTimeout   = "SIGNAL_QUEUE_CLIENT_TIMEOUT"
 	envSignalQueueClientRetry     = "SIGNAL_QUEUE_CLIENT_RETRIES"
+	envHoneyPotMode               = "HONEY_POT_MODE"
 	allowAllToken                 = "ALLOW"
 	allowAnyOrigin                = "*"
 )
@@ -113,20 +111,6 @@ func AllowedOrigin() (domain string, allowAny bool) {
 	return
 }
 
-func StorageAddress() string {
-	return lookupOrFail(envStorageAddress)
-}
-
-func StorageToken() string {
-	token := lookupOrFail(envStorageToken)
-	data, err := base64.StdEncoding.DecodeString(token)
-	if err != nil {
-		log.Fatal().Err(err).Str("token", token).Msg("failed to decode base64 token")
-	}
-	log.Debug().Bytes("data", data).Str("b64token", token).Msg("storage token information")
-	return strings.TrimSpace(string(data))
-}
-
 func SignalQueueUrl() url.URL {
 	queueUrl := lookupOrFail(envSignalQueueUrl)
 	result, err := url.Parse(queueUrl)
@@ -172,6 +156,17 @@ func SignalQueueClientRetry() int32 {
 		log.Fatal().Err(err).Str("clientRetries", clientRetries).Msg("invalid client retry (out of range)")
 	}
 	return int32(result)
+}
+
+func HoneyPotMode() bool {
+	if val, ok := os.LookupEnv(envHoneyPotMode); ok {
+		honeyPotMode, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Fatal().Err(err).Str("key", envHoneyPotMode).Msg("invalid value specified")
+		}
+		return honeyPotMode
+	}
+	return false
 }
 
 func lookupOrFail(env string) string {

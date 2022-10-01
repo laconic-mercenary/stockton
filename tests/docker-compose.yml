@@ -19,8 +19,6 @@ services:
       ALLOWED_ORIGIN: "*"
       LOGGING_LEVEL: "debug"
       AUTHORIZATION_TOKEN: "string"
-      STORAGE_ADDRESS: "http://storage:80/api/signals"
-      STORAGE_TOKEN: "c2FtcGxlLWF1dGgta2V5Cg=="
       SIGNAL_QUEUE_URL: "http://azurite:10001/devstoreaccount1/signals"
       SIGNAL_QUEUE_ACCOUNT_NAME: "devstoreaccount1"
       SIGNAL_QUEUE_ACCOUNT_KEY: "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
@@ -41,6 +39,7 @@ services:
       - "SIGNAL_EXPIRY=30"
       - "AZURE_FUNCTIONS_ENVIRONMENT=Development"
       - "USE_STUBBED_STORAGE=false"
+      - "ALLOWED_ORIGIN=*"
       - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1;"
       - "SignalsQueueConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;QueueEndpoint=http://azurite:10001/devstoreaccount1;"
   azurite:
