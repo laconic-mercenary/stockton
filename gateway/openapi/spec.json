@@ -16,10 +16,19 @@
          }
       ],
       "paths": {
-         "/api/signals": {
+         "/api/storage/tickers": {
             "get": {
                "summary": "Get all tickers in the database",
                "description": "Get all tickers in the database",
+               "parameters": [
+                  {
+                     "in": "header",
+                     "name": "x-storage-auth-key",
+                     "schema": {
+                        "type": "string"
+                     }
+                  }
+               ],
                "responses": {
                   "200": {
                      "description": "All tickers in the database - sorted, distinct",
@@ -70,7 +79,7 @@
                }
             }
          },
-         "/api/signals/{ticker}": {
+         "/api/storage/signals/{ticker}": {
             "get": {
                "summary": "Stock ticker or crypto identifier",
                "description": "Stock ticker or crypto identifier",
@@ -86,7 +95,7 @@
                   },
                   {
                      "in": "header",
-                     "name": "X-Gateway-Allow-Token",
+                     "name": "x-storage-auth-key",
                      "schema": {
                         "type": "string"
                      }

@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
-	"regexp"
 	"strings"
 	"time"
 
@@ -18,20 +17,22 @@ import (
 )
 
 const (
-	headerContentType  = "Content-Type"
-	headerOrigin       = "Origin"
-	headerAuthToken    = "X-Gateway-Allow-Token"
-	contentTypeJson    = "application/json"
+	headerContentType = "Content-Type"
+	headerOrigin      = "Origin"
+	headerAuthToken   = "X-Gateway-Allow-Token"
+	contentTypeJson   = "application/json"
+	contentTypeText   = "text/plain"
 )
-
-var validTicker = regexp.MustCompile(`^[a-zA-Z]{1,75}$`).MatchString
 
 func Gateway(writer http.ResponseWriter, request *http.Request) {
 	log.Trace().Msg("Gateway")
 	timestampStart := time.Now().UnixMilli()
-	requestId := uuid.New().String()
-	ctx := createContext(requestId)
 	logRequest(request)
+	if config.HoneyPotMode() {
+		log.Warn().Msg("HONEY POT MODE - will not handle requests")
+		handleHoneyPot(writer, request)
+		return
+	}
 	if !isOriginAllowed(request) {
 		log.Warn().Msg("request not authorized")
 		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -43,11 +44,15 @@ func Gateway(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
+	requestId := uuid.New().String()
+	ctx := createContext(requestId)
+	setDefaultHeaders(writer)
 	op(writer, request, ctx)
 	logRequestDuration(timestampStart, requestId)
 }
 
 func logRequestDuration(start int64, requestId string) {
+	log.Trace().Msg("logRequestDuration")
 	end := time.Now().UnixMilli()
 	log.Info().Int64("elapsedMillis", end-start).Str("requestId", requestId).Msg("request finished")
 }
@@ -64,6 +69,7 @@ func logRequest(request *http.Request) {
 }
 
 func isOriginAllowed(request *http.Request) bool {
+	log.Trace().Msg("isOriginAllowed")
 	log.Debug().Msg("checking origin...")
 	allowedDomain, allowAny := config.AllowedOrigin()
 	if !allowAny {
@@ -87,6 +93,7 @@ func isOriginAllowed(request *http.Request) bool {
 }
 
 func isAuthHeaderAllowed(request *http.Request) bool {
+	log.Trace().Msg("isAuthHeaderAllowed")
 	log.Debug().Msg("checking auth token in header...")
 	secureToken, allowAll := config.AuthenticationToken()
 	if !allowAll {
@@ -109,10 +116,51 @@ func isAuthHeaderAllowed(request *http.Request) bool {
 }
 
 func isObjectAuthorized(signal signals.SignalEvent) bool {
+	log.Trace().Msg("isObjectAuthorized")
 	if secureToken, allowAll := config.AuthenticationToken(); !allowAll {
 		return (secureToken == signal.Key)
 	}
 	return true
+}
+
+func setDefaultHeaders(writer http.ResponseWriter) {
+	log.Trace().Msg("setDefaultHeaders")
+	origin, allowAny := config.AllowedOrigin()
+	if allowAny {
+		origin = "*"
+	}
+	writer.Header().Set("Access-Control-Allow-Origin", origin)
+	writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	writer.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, "+headerAuthToken)
+}
+
+func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
+	log.Trace().Msg("allowedOperations")
+	return map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context){
+		http.MethodPost:    handlePost,
+		http.MethodOptions: handleOptions,
+		//http.MethodGet:  handleGet,
+	}
+}
+
+func createContext(requestId string) context.Context {
+	log.Trace().Msg("createContext")
+	return context.WithValue(context.Background(), config.RequestIdKey(), requestId)
+}
+
+func handleHoneyPot(writer http.ResponseWriter, request *http.Request) {
+	log.Trace().Msg("handleHoneyPot")
+	writer.Header().Add(headerContentType, contentTypeText)
+	writer.WriteHeader(http.StatusOK)
+	writer.Write([]byte(http.StatusText(http.StatusOK)))
+}
+
+func handleOptions(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
+	log.Trace().Msg("handleOptions")
+	log.Debug().Msg("options handled")
+	writer.Header().Add(headerContentType, contentTypeText)
+	writer.WriteHeader(http.StatusOK)
+	writer.Write([]byte(http.StatusText(http.StatusOK)))
 }
 
 func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
@@ -211,15 +259,3 @@ func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.C
 // 	writer.WriteHeader(http.StatusOK)
 // 	writer.Write(data)
 // }
-
-func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
-	log.Trace().Msg("allowedOperations")
-	return map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context){
-		http.MethodPost: handlePost,
-		//http.MethodGet:  handleGet,
-	}
-}
-
-func createContext(requestId string) context.Context {
-	return context.WithValue(context.Background(), config.RequestIdKey(), requestId)
-}

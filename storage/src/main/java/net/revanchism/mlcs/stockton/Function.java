@@ -92,12 +92,12 @@ public class Function {
 
     private static String listToJson(List<String> list) {
         final StringBuilder json = new StringBuilder();
-        json.append("[");
-        list.stream().forEach(item -> json.append(item).append(","));
-        if (json.length() > 1) {
+        json.append("{").append("\"results\":").append("[");
+        list.stream().forEach(item -> json.append('"').append(item).append('"').append(","));
+        if (json.indexOf(",") != -1) {
             json.deleteCharAt(json.lastIndexOf(","));
         }
-        json.append("]");
+        json.append("]").append("}");
         return json.toString();
     }
 
@@ -156,7 +156,7 @@ public class Function {
     public HttpResponseMessage getTickers(@HttpTrigger(name = "getTickers",
                                                         methods = { HttpMethod.GET }, 
                                                         authLevel = AuthorizationLevel.ANONYMOUS,
-                                                        route = "signals/tickers") 
+                                                        route = "storage/tickers")
                                             final HttpRequestMessage<Optional<Signal>> request,
                                             final ExecutionContext context) {
         final Logger logger = context.getLogger();
@@ -181,7 +181,7 @@ public class Function {
             final TableClient client =  new TableClientBuilder().connectionString(Config.getSignalsTableConnectionString())
                                                                 .tableName(TABLE_NAME)
                                                                 .buildClient();
-            final ListEntitiesOptions options = new ListEntitiesOptions().setSelect(Arrays.asList("ticker"));
+            final ListEntitiesOptions options = new ListEntitiesOptions().setSelect(Arrays.asList("PartitionKey"));
             results = client.listEntities(options , STORAGE_TIMEOUT, null)
                             .stream()
                             .map(entity -> entity.getPartitionKey()) // partitionKey ... which should be the ticker
@@ -200,7 +200,7 @@ public class Function {
     public Signal[] getSignals(@HttpTrigger(name = "getSignalsByTicker",
                                             methods = { HttpMethod.GET }, 
                                             authLevel = AuthorizationLevel.ANONYMOUS,
-                                            route = "signals/{ticker}") 
+                                            route = "storage/signals/{ticker}") 
                                 final HttpRequestMessage<Optional<Signal>> request,
                                 @BindingName("ticker") 
                                 final String ticker,

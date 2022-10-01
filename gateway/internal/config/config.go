@@ -25,6 +25,7 @@ const (
 	envSignalQueueMessageTTL      = "SIGNAL_QUEUE_MESSAGE_TTL"
 	envSignalQueueClientTimeout   = "SIGNAL_QUEUE_CLIENT_TIMEOUT"
 	envSignalQueueClientRetry     = "SIGNAL_QUEUE_CLIENT_RETRIES"
+	envHoneyPotMode               = "HONEY_POT_MODE"
 	allowAllToken                 = "ALLOW"
 	allowAnyOrigin                = "*"
 )
@@ -155,6 +156,17 @@ func SignalQueueClientRetry() int32 {
 		log.Fatal().Err(err).Str("clientRetries", clientRetries).Msg("invalid client retry (out of range)")
 	}
 	return int32(result)
+}
+
+func HoneyPotMode() bool {
+	if val, ok := os.LookupEnv(envHoneyPotMode); ok {
+		honeyPotMode, err := strconv.ParseBool(val)
+		if err != nil {
+			log.Fatal().Err(err).Str("key", envHoneyPotMode).Msg("invalid value specified")
+		}
+		return honeyPotMode
+	}
+	return false
 }
 
 func lookupOrFail(env string) string {
