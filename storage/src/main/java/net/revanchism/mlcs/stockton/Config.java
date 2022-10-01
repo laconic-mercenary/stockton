@@ -19,6 +19,8 @@ public final class Config {
 
     private static final String ENV_AUTH_HEADER_KEY = "AUTH_HEADER_KEY";
 
+    private static final String ENV_ALLOW_ORIGIN = "ALLOWED_ORIGIN";
+
     private static final int MIN_AUTH_KEY_LENGTH = 10;
 
     public static String getAuthHeaderName() {
@@ -49,6 +51,10 @@ public final class Config {
 
     public static String getSignalsTableConnectionString() {
         return getEnv(ENV_SIGNALS_TABLE_CONNSTR);
+    }
+
+    public static String getAllowedOrigin() {
+        return getEnv(ENV_ALLOW_ORIGIN);
     }
 
     private static String getEnv(final String env) {

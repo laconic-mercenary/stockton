@@ -90,10 +90,17 @@ public class Function {
         return authKey.equals(userProvidedAuthKey);
     }
 
-    private static String listToJson(List<String> list) {
+    private static String listToJson(List<?> list) {
         final StringBuilder json = new StringBuilder();
         json.append("{").append("\"results\":").append("[");
-        list.stream().forEach(item -> json.append('"').append(item).append('"').append(","));
+        list.stream().forEach(item -> {
+            if (item.getClass().equals(String.class)) {
+                json.append('"').append(item.toString()).append('"');
+            } else {
+                json.append(item.toString());
+            }
+            json.append(",");
+        });
         if (json.indexOf(",") != -1) {
             json.deleteCharAt(json.lastIndexOf(","));
         }
@@ -114,6 +121,16 @@ public class Function {
         if (logger.isLoggable(level)) {
             logger.log(level, String.format("msg='%s', requestId=%s", message, requestId));
         }
+    }
+
+    private static HttpResponseMessage.Builder wrapCORS(HttpMethod method, HttpResponseMessage.Builder builder) {
+        if (HttpMethod.OPTIONS.equals(method)) {
+            builder.header("Access-Control-Allow-Methods", HttpMethod.GET.name() + "," + HttpMethod.OPTIONS.name());
+		    builder.header("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, " + Config.getAuthHeaderName());
+		    builder.header("Access-Control-Max-Age", "600");
+        }
+        builder.header("Access-Control-Allow-Origin", Config.getAllowedOrigin());
+        return builder;
     }
 
     @FunctionName("stockton-delete-old-signals")
@@ -154,7 +171,7 @@ public class Function {
 
     @FunctionName("stockton-get-tickers")
     public HttpResponseMessage getTickers(@HttpTrigger(name = "getTickers",
-                                                        methods = { HttpMethod.GET }, 
+                                                        methods = { HttpMethod.GET, HttpMethod.OPTIONS }, 
                                                         authLevel = AuthorizationLevel.ANONYMOUS,
                                                         route = "storage/tickers")
                                             final HttpRequestMessage<Optional<Signal>> request,
@@ -166,10 +183,15 @@ public class Function {
 
         log("request receieved", requestId, logger, Level.FINE);
 
+        if (HttpMethod.OPTIONS.equals(request.getHttpMethod())) {
+            log("OPTIONS received", requestId, logger, Level.FINE);
+            return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.NO_CONTENT)).build();
+        }
+
         if (!isAuthorized(request.getHeaders(), logger)) {
             // this looks silly but, AuthorizationLevel seems painful
             log("user not authorized for request", requestId, logger, Level.WARNING);
-            return request.createResponseBuilder(HttpStatus.UNAUTHORIZED)
+            return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.UNAUTHORIZED))
                             .header("Content-Type", "text/plain")
                             .body(HttpStatus.UNAUTHORIZED.toString())
                             .build();
@@ -190,15 +212,15 @@ public class Function {
                             .collect(Collectors.toList());
         }
         logRequestDuration(current, requestId, logger);
-        return request.createResponseBuilder(HttpStatus.ACCEPTED)
+        return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.OK))
                         .header("Content-Type", "application/json")
                         .body(listToJson(results))
                         .build();
     }
 
     @FunctionName("stockton-get-signals")
-    public Signal[] getSignals(@HttpTrigger(name = "getSignalsByTicker",
-                                            methods = { HttpMethod.GET }, 
+    public HttpResponseMessage getSignals(@HttpTrigger(name = "getSignalsByTicker",
+                                            methods = { HttpMethod.GET, HttpMethod.OPTIONS }, 
                                             authLevel = AuthorizationLevel.ANONYMOUS,
                                             route = "storage/signals/{ticker}") 
                                 final HttpRequestMessage<Optional<Signal>> request,
@@ -218,10 +240,18 @@ public class Function {
 
         log("request receieved", requestId, logger, Level.FINE);
 
+        if (HttpMethod.OPTIONS.equals(request.getHttpMethod())) {
+            log("OPTIONS received", requestId, logger, Level.FINE);
+            return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.NO_CONTENT)).build();
+        }
+
         if (!isAuthorized(request.getHeaders(), logger)) {
             // this looks silly but, AuthorizationLevel seems painful
-            log("user not authorized for request - returning empty response", requestId, logger, Level.WARNING);
-            return EMPTY_RESPONSE;
+            log("user not authorized for request", requestId, logger, Level.WARNING);
+            return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.UNAUTHORIZED))
+                            .header("Content-Type", "text/plain")
+                            .body(HttpStatus.UNAUTHORIZED.toString())
+                            .build();
         }
 
         log(new StringBuilder().append("query for ticker: ")
@@ -231,10 +261,10 @@ public class Function {
                                         .append(" signal(s)")
                                         .toString(), requestId, logger, Level.INFO);
 
-        final Signal[] results = Arrays.asList(signals)
-                                        .stream()
-                                        .sorted(SORT_REVERSE_ROWKEY)
-                                        .map(signal -> {
+        final List<Signal> results = Arrays.asList(signals)
+                                            .stream()
+                                            .sorted(SORT_REVERSE_ROWKEY)
+                                            .map(signal -> {
                                                 String notes = signal.getNotes();
                                                 if (StringUtils.isEmpty(notes)) {
                                                     notes = "";
@@ -245,10 +275,12 @@ public class Function {
                                                 signal.setNotes(notes);
                                                 return signal;
                                             })
-                                        .collect(Collectors.toUnmodifiableList())
-                                        .toArray(new Signal[signals.length]);
+                                            .collect(Collectors.toUnmodifiableList());
         logRequestDuration(startMillis, requestId, logger);
-        return results;
+        return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.OK))
+                        .header("Content-Type", "application/json")
+                        .body(listToJson(results))
+                        .build();
     }
 
     @FunctionName("stockton-store-signal")

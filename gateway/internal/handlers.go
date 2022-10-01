@@ -46,7 +46,6 @@ func Gateway(writer http.ResponseWriter, request *http.Request) {
 	}
 	requestId := uuid.New().String()
 	ctx := createContext(requestId)
-	setDefaultHeaders(writer)
 	op(writer, request, ctx)
 	logRequestDuration(timestampStart, requestId)
 }
@@ -123,15 +122,18 @@ func isObjectAuthorized(signal signals.SignalEvent) bool {
 	return true
 }
 
-func setDefaultHeaders(writer http.ResponseWriter) {
+func setCORSHeaders(writer http.ResponseWriter, allHeaders bool) {
 	log.Trace().Msg("setDefaultHeaders")
 	origin, allowAny := config.AllowedOrigin()
 	if allowAny {
 		origin = "*"
 	}
 	writer.Header().Set("Access-Control-Allow-Origin", origin)
-	writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	writer.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, "+headerAuthToken)
+	if allHeaders {
+		writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		writer.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, "+headerAuthToken)
+		writer.Header().Set("Access-Control-Max-Age", "600") // 10 minutes
+	}
 }
 
 func allowedOperations() map[string]func(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
@@ -158,14 +160,15 @@ func handleHoneyPot(writer http.ResponseWriter, request *http.Request) {
 func handleOptions(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
 	log.Trace().Msg("handleOptions")
 	log.Debug().Msg("options handled")
+	setCORSHeaders(writer, true)
 	writer.Header().Add(headerContentType, contentTypeText)
-	writer.WriteHeader(http.StatusOK)
-	writer.Write([]byte(http.StatusText(http.StatusOK)))
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func handlePost(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
 	log.Trace().Msg("handlePost")
 	requestId := fmt.Sprintf("%s", ctx.Value(config.RequestIdKey()))
+	setCORSHeaders(writer, false)
 	if config.RequireAuthHeader() {
 		if !isAuthHeaderAllowed(request) {
 			log.Warn().Str("requestId", requestId).Msg("unauthorized header")
