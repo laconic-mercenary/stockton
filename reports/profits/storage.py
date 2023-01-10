@@ -1,25 +1,30 @@
 
-import config
-import httpc
+from . import config
+from . import httpc
+
 import logging
 import json
 
 __AZURE_FUNC_AUTH_HEADER='x-functions-key'
 
-def __get(target):
-    auth = config.get_storage_auth_key()
-    code, response = httpc.make_get_request(target, headers = { __AZURE_FUNC_AUTH_HEADER : auth })
-    if code != 200:
-        logging.error('target: %s, code: %d, response: %s', target, code, response)
-        raise Exception('error when querying tickers')
+def __get(target, az_fn_key):
+    logging.info('Sending request to: ' + target)
+    headers = {
+        __AZURE_FUNC_AUTH_HEADER : az_fn_key
+    }
+    response = httpc.make_get_request(target, headers = headers)
     json_rx = json.loads(response)
     assert 'results' in json_rx
     return json_rx['results']
 
 def get_all_tickers():
+    logging.debug('get_all_tickers()')
     target = config.get_tickers_url()
-    return __get(target)
+    tickers_auth = config.get_storage_tickers_az_fn_key()
+    return __get(target, tickers_auth)
 
-def get_signals(ticker: str) -> list[str]:
+def get_signals(ticker: str):
+    logging.debug('get_signals()')
     target = config.get_signals_url(ticker)
-    return __get(target)
+    signals_auth = config.get_storage_signals_az_fn_key()
+    return __get(target, signals_auth)
