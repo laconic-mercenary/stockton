@@ -41,3 +41,6 @@ curl -v  -X POST -d '{ "ticker":"TSLA", "action":"buy", "close":256.34, "contrac
 ```bash
 docker-compose down
 ```
+
+curl -v -H "X-Gateway-Allow-Token: string" -X POST -d '{ "ticker":"TSLA", "action":"buy", "close":256.34, "contracts":1,"key":"yR4WnGvoC5po4IYNjipMzdHZ7jzw5eF" }' https://stockton-jpe01-gateway.azurewebsites.net/api/gateway
+q
