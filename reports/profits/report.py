@@ -23,11 +23,11 @@ def __get_ticker_trades(signals):
     return len(signals)
 
 def __get_ticker_since(signals):
-    unix_stamp = int(signals[0]['rowKey'])
+    unix_stamp = int(signals[-1]['rowKey'])
     return datetime.datetime.fromtimestamp(unix_stamp / 1000.0).isoformat()
 
 def __get_ticker_latest(signals):
-    unix_stamp = int(signals[-1]['rowKey'])
+    unix_stamp = int(signals[0]['rowKey'])
     return datetime.datetime.fromtimestamp(unix_stamp / 1000.0).isoformat()
 
 def __get_ticker_timeframe(signals):
@@ -40,13 +40,14 @@ def __ticker_row(ticker, signals):
     since = __get_ticker_since(signals)
     latest = __get_ticker_latest(signals)
     timeframe = __get_ticker_timeframe(signals)
+    trade_is_open = signals[0]['action'] == 'buy'
     return tr(
         td(ticker),
-        td(status),
+        td(status, _style='color:' + 'lime' if status == 'profit' else 'red'),
         td(profit_loss),
         td(trades),
         td(since),
-        td(latest),
+        td(latest, _style='color:yellow' if trade_is_open else ''),
         td(timeframe)
     )
 
@@ -93,6 +94,7 @@ def create_html(data):
                 )
             )
 
+### sample html result
 """
 <!DOCTYPE html>
 <html lang="en">

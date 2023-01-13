@@ -8,7 +8,7 @@ import json
 __AZURE_FUNC_AUTH_HEADER='x-functions-key'
 
 def __get(target, az_fn_key):
-    logging.info('Sending request to: ' + target)
+    logging.debug('Sending request to: ' + target)
     headers = {
         __AZURE_FUNC_AUTH_HEADER : az_fn_key
     }
