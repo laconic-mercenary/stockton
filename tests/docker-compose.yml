@@ -42,22 +42,6 @@ services:
       - "ALLOWED_ORIGIN=*"
       - "SignalsStorageConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;TableEndpoint=http://azurite:10002/devstoreaccount1;"
       - "SignalsQueueConnectionString=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;QueueEndpoint=http://azurite:10001/devstoreaccount1;"
-  reports:
-    build: 
-      context: ../reports
-      dockerfile: Dockerfile
-    environment:
-      GET_TICKERS_URL: "https://storage:8099/api/storage/tickers"
-      GET_SIGNALS_URL: "https://storage:8099/api/storage/signals"
-      STORAGE_TICKERS_AZ_FN_KEY: "???"
-      STORAGE_SIGNALS_AZ_FN_KEY: "???"
-      TO_EMAIL: "akirameruna@protonmail.com"
-      FROM_EMAIL: "stockton.reports.prod@gmail.com"
-      EMAIL_PASSWORD: "???"
-      EMAIL_SUBJECT: "(Stockton) Weekly Profit Reports"
-      AzureWebJobsStorage: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
-      FUNCTIONS_WORKER_RUNTIME: python
-      AZURE_FUNCTIONS_ENVIRONMENT: Development
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.19.0
     ports:
