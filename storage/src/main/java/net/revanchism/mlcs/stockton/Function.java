@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -76,6 +77,17 @@ public class Function {
         return true;
     }
 
+    private static boolean isAuthorized(final Map<String, String> headers, 
+                                        final Logger logger) {
+        final String authHeader = Config.getAuthHeaderName();
+        if (!headers.containsKey(authHeader)) {
+            return false;
+        }
+        final String userProvidedAuthKey = headers.get(authHeader);
+        final String authKey = Config.getAuthHeaderKey();
+        return authKey.equals(userProvidedAuthKey);
+    }
+
     private static String listToJson(final List<?> list) {
         final StringBuilder json = new StringBuilder();
         json.append("{").append("\"results\":").append("[");
@@ -112,7 +124,7 @@ public class Function {
     private static HttpResponseMessage.Builder wrapCORS(final HttpMethod method, final HttpResponseMessage.Builder builder) {
         if (HttpMethod.OPTIONS.equals(method)) {
             builder.header("Access-Control-Allow-Methods", HttpMethod.GET.name() + "," + HttpMethod.OPTIONS.name());
-		    builder.header("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length");
+		    builder.header("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, " + Config.getAuthHeaderName());
 		    builder.header("Access-Control-Max-Age", "600");
         }
         builder.header("Access-Control-Allow-Origin", Config.getAllowedOrigin());
@@ -173,15 +185,24 @@ public class Function {
             log("OPTIONS received", requestId, logger, Level.FINE);
             return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.NO_CONTENT)).build();
         }
+
+        if (!isAuthorized(request.getHeaders(), logger)) {
+            // this looks silly but, AuthorizationLevel seems painful
+            log("user not authorized for request", requestId, logger, Level.WARNING);
+            return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.UNAUTHORIZED))
+                            .header("Content-Type", "text/plain")
+                            .body(HttpStatus.UNAUTHORIZED.toString())
+                            .build();
+        }
         
         if (Config.useStubbedStorage()) {
             log("using stubbed storage - will not delete any signals", requestId, logger, Level.WARNING);
         } else {
-            try {
-                final TableClient client =  new TableClientBuilder().connectionString(Config.getSignalsTableConnectionString())
+            final TableClient client =  new TableClientBuilder().connectionString(Config.getSignalsTableConnectionString())
                                                                 .tableName(TABLE_NAME)
                                                                 .buildClient();
-                final ListEntitiesOptions options = new ListEntitiesOptions().setSelect(Arrays.asList("PartitionKey"));
+            final ListEntitiesOptions options = new ListEntitiesOptions().setSelect(Arrays.asList("PartitionKey"));
+            try {
                 results = client.listEntities(options , STORAGE_TIMEOUT, null)
                                 .stream()
                                 .map(entity -> entity.getPartitionKey()) // partitionKey ... which should be the ticker
@@ -229,6 +250,15 @@ public class Function {
         if (HttpMethod.OPTIONS.equals(request.getHttpMethod())) {
             log("OPTIONS received", requestId, logger, Level.FINE);
             return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.NO_CONTENT)).build();
+        }
+
+        if (!isAuthorized(request.getHeaders(), logger)) {
+            // this looks silly but, AuthorizationLevel seems painful
+            log("user not authorized for request", requestId, logger, Level.WARNING);
+            return wrapCORS(request.getHttpMethod(), request.createResponseBuilder(HttpStatus.UNAUTHORIZED))
+                            .header("Content-Type", "text/plain")
+                            .body(HttpStatus.UNAUTHORIZED.toString())
+                            .build();
         }
 
         log(new StringBuilder().append("query for ticker: ")
