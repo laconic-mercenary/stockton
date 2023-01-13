@@ -48,7 +48,7 @@ public class Function {
 
     private static final Comparator<Signal> SORT_REVERSE_ROWKEY = Comparator.comparing(Signal::getRowKey).reversed();
 
-    private static final String CRON_DELETE = "0 30 2 * * *";
+    private static final String CRON_DELETE = "0 10 * * 1 *";
 
     private static final Duration STORAGE_TIMEOUT = Duration.ofSeconds(30L);
 
