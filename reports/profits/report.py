@@ -8,16 +8,21 @@ def __get_ticker_status(signals):
     return 'profit' if __get_ticker_profit_loss(signals) > 0.0 else 'loss'
 
 def __get_ticker_profit_loss(signals):
-    pl = 0.0
+    balance = 0.0
     for signal in signals:
-        close = float(signal['close'])
-        if signal['action'] == 'sell':
-            pl += close
-        elif signal['action'] == 'buy':
-            pl -= close
+        price = float(signal["close"])
+        action = signal["action"]
+        quantity = float(signal["contracts"])
+        total_price = (price * quantity)
+        ## selling is assumed to add to the "balance"
+        ## buying is assumed to subtract from the "balance"
+        if action == "sell":
+            balance += total_price
+        elif action == "buy":
+            balance -= total_price
         else:
-            raise Exception('unknown action: ' + signal['action'])
-    return round(pl, 2)
+            raise Exception('unknown action: ' + action)
+    return round(balance, 2)
 
 def __get_ticker_trades(signals):
     return len(signals)

@@ -12,3 +12,4 @@ See [TEST README](./tests/README.md).
 
 * For Gateway, see [Gateway](./gateway/README.md).
 * For Storage, see [Storage](./storage/README.md).
+* For Reports, see [Reports](./reports/README.md).
