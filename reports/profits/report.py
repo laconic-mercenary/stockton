@@ -7,6 +7,47 @@ from domonic.html import *
 def __get_ticker_status(signals):
     return 'profit' if __get_ticker_profit_loss(signals) > 0.0 else 'loss'
 
+def __get_win_percentage(signals):
+    ## calculates the win percentage of all trades for a security
+    ## it uses the position size reported by tradingview as the way to determine
+    ## if a setup was profitable or not. Recall that there are 4 types of actions
+    ## ENTRY, STOP-LOSS, PARTIAL TAKE PROFIT, FULL TAKE PROFIT
+    win_count = 0.0
+    loss_count = 0.0
+    trade_entry_qty = __get_trade_entry_size(signals)
+    trade_stop_qty = 0.0
+    trade_balance = 0.0
+    for signal in signals:
+        position_size = __extract_position_size(signal)
+        price = float(signal["close"])
+        quantity = float(signal["contracts"])
+        action = signal["action"]
+        total_price = (price * quantity)
+        if position_size == trade_entry_qty:
+            ## trade entered, must be a BUY
+            if action != "buy":
+                raise Exception("expected a BUY entry, the max quantity assumes that it is a BUY")
+            trade_balance -= total_price
+        elif position_size == trade_stop_qty:
+            ## trade finished - either stop loss or final take profit, must be a SELL
+            if action != "sell":
+                raise Exception("expected a sell entry, such as a stop-loss or full take profit")
+            trade_balance += total_price
+            if trade_balance > 0.0: # I consider break-even a loss
+                win_count += 1.0 
+            else:
+                loss_count += 1.0 
+            trade_balance = 0.0
+        else:
+            ## NOTE: a trade in the context of this function ignores the fact that a partial take
+            ## profit is actually a TRADE. The term "setup" for multiple trades, makes more sense
+            ## a minor take profit, must be a SELL
+            if action != "sell":
+                raise Exception("expected a sell entry, such as a partial take profit")
+            trade_balance += total_price
+    total_count = win_count + loss_count
+    return (win_count / total_count)
+
 def __get_ticker_profit_loss(signals):
     balance = 0.0
     for signal in signals:
@@ -35,12 +76,37 @@ def __get_ticker_latest(signals):
     unix_stamp = int(signals[0]['rowKey'])
     return datetime.datetime.fromtimestamp(unix_stamp / 1000.0).isoformat()
 
+def __extract_position_size(signal):
+    if not "notes" in signal:
+        raise Exception("notes key was not in signal: " + str(signal))
+    notes = signal["notes"]
+    if not "posSize" in notes:
+        raise Exception("posSize key was not in signal notes: " + notes)
+    key_value_pairs = notes.split(';')
+    for pair in key_value_pairs:
+        key_value = pair.split('=')
+        if len(key_value) == 2:
+            key, value = key_value
+            if key == 'posSize':
+                return float(value)
+    raise Exception("unable to extract the value for posSize in notes: " + notes)
+
+def __get_trade_entry_size(signals):
+    ## gets the number of contracts bought when the trade was entered
+    ## find the maximum quantity, because all take profits will be less than the buy amount
+    max_contracts = 0.0
+    for signal in signals:
+        quantity = float(signal["contracts"])
+        max_contracts = max(max_contracts, quantity)
+    return max_contracts
+
 def __get_ticker_timeframe(signals):
     return '?'
 
 def __ticker_row(ticker, signals):
     status = __get_ticker_status(signals)
     profit_loss = __get_ticker_profit_loss(signals)
+    win_percentage = __get_win_percentage(signals)
     trades = __get_ticker_trades(signals)
     since = __get_ticker_since(signals)
     latest = __get_ticker_latest(signals)
@@ -51,6 +117,7 @@ def __ticker_row(ticker, signals):
         td(status, _style='color:' + 'lime' if status == 'profit' else 'red'),
         td(profit_loss),
         td(trades),
+        td(win_percentage),
         td(since),
         td(latest, _style='color:yellow' if trade_is_open else ''),
         td(timeframe)
@@ -79,7 +146,7 @@ def create_html(data):
                         table(
                             thead(
                                 tr(
-                                    th('Overall:'),
+                                    th('[Overall]'),
                                     __overall_header(data)
                                 ),
                                 tr(
@@ -87,6 +154,7 @@ def create_html(data):
                                     th('STATUS'),
                                     th('PROFIT/LOSS'),
                                     th('TRADES'),
+                                    th('WIN %'),
                                     th('SINCE'),
                                     th('LATEST'),
                                     th('TIMEFRAME')
