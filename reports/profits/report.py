@@ -8,6 +8,7 @@ def __get_ticker_status(signals):
     return 'profit' if __get_ticker_profit_loss(signals) > 0.0 else 'loss'
 
 def __get_win_percentage(signals):
+    logging.info("__get_win_percentage")
     ## calculates the win percentage of all trades for a security
     ## it uses the position size reported by tradingview as the way to determine
     ## if a setup was profitable or not. Recall that there are 4 types of actions
@@ -17,12 +18,21 @@ def __get_win_percentage(signals):
     trade_entry_qty = __get_trade_entry_size(signals)
     trade_stop_qty = 0.0
     trade_balance = 0.0
-    for signal in signals:
+    logging.info(">> START: signals={}, entry_size={}".format(len(signals), trade_entry_qty))
+    trade_counter = 0
+    sorted_signals = sorted(signals, key=lambda x: int(x['rowKey']))
+    for signal in sorted_signals:
+        trade_counter += 1
+        ## note: posSize refers to the number of shares owned AFTER the trade executed
+        ##  for example quantity could be 2 or 3 etc, but posSize could ne 0
         position_size = __extract_position_size(signal)
         price = float(signal["close"])
         quantity = float(signal["contracts"])
         action = signal["action"]
+        timestamp = int(signal["rowKey"])
+        datetime = __ts_to_datetime(timestamp)
         total_price = (price * quantity)
+        logging.info("Trade({}): price={}, pos_size={}, qty={}, action={}, datetime={}".format(trade_counter, price, position_size, quantity, action, datetime))
         if position_size == trade_entry_qty:
             ## trade entered, must be a BUY
             if action != "buy":
@@ -36,7 +46,8 @@ def __get_win_percentage(signals):
             if trade_balance > 0.0: # I consider break-even a loss
                 win_count += 1.0 
             else:
-                loss_count += 1.0 
+                loss_count += 1.0
+            logging.info("Trade({}): END - balance={}".format(trade_counter, trade_balance))
             trade_balance = 0.0
         else:
             ## NOTE: a trade in the context of this function ignores the fact that a partial take
@@ -45,8 +56,12 @@ def __get_win_percentage(signals):
             if action != "sell":
                 raise Exception("expected a sell entry, such as a partial take profit")
             trade_balance += total_price
+    logging.info(">> END: win_count={}, loss_count={}".format(win_count, loss_count))
     total_count = win_count + loss_count
-    return (win_count / total_count)
+    if total_count > 0.0:
+        return (win_count / total_count)
+    else:
+        return total_count ## this means we are still in the setup
 
 def __get_ticker_profit_loss(signals):
     balance = 0.0
@@ -68,13 +83,18 @@ def __get_ticker_profit_loss(signals):
 def __get_ticker_trades(signals):
     return len(signals)
 
+def __ts_to_datetime(timestamp):
+    return datetime.datetime.fromtimestamp(timestamp / 1000.0).isoformat()
+
 def __get_ticker_since(signals):
-    unix_stamp = int(signals[-1]['rowKey'])
-    return datetime.datetime.fromtimestamp(unix_stamp / 1000.0).isoformat()
+    sorted_signals = sorted(signals, key=lambda x: int(x['rowKey']))
+    unix_stamp = int(sorted_signals[0]['rowKey'])
+    return __ts_to_datetime(unix_stamp)
 
 def __get_ticker_latest(signals):
-    unix_stamp = int(signals[0]['rowKey'])
-    return datetime.datetime.fromtimestamp(unix_stamp / 1000.0).isoformat()
+    sorted_signals = sorted(signals, key=lambda x: int(x['rowKey']))
+    unix_stamp = int(sorted_signals[-1]['rowKey'])
+    return __ts_to_datetime(unix_stamp)
 
 def __extract_position_size(signal):
     if not "notes" in signal:
@@ -104,6 +124,7 @@ def __get_ticker_timeframe(signals):
     return '?'
 
 def __ticker_row(ticker, signals):
+    logging.info("__ticker_row: ticker={}, signal_count={}".format(ticker, len(signals)))
     status = __get_ticker_status(signals)
     profit_loss = __get_ticker_profit_loss(signals)
     win_percentage = __get_win_percentage(signals)
@@ -117,7 +138,7 @@ def __ticker_row(ticker, signals):
         td(status, _style='color:' + 'lime' if status == 'profit' else 'red'),
         td(profit_loss),
         td(trades),
-        td(win_percentage),
+        td(win_percentage * 100.0),
         td(since),
         td(latest, _style='color:yellow' if trade_is_open else ''),
         td(timeframe)
@@ -139,7 +160,7 @@ def __overall_header(data):
             )
 
 def create_html(data):
-    logging.debug('create_html()')
+    logging.info('create_html()')
     return  html(
                 body(
                     div(
