@@ -74,7 +74,7 @@ az functionapp create --resource-group ${RESOURCE_GROUP_NAME} \
     --consumption-plan-location ${STORAGE_ACCOUNT_LOCATION} \
     --runtime python \
     --os-type Linux \
-    --runtime-version 3.9 \
+    --runtime-version 3.10 \
     --functions-version 4 \
     --name ${FUNCTION_NAME} \
     --storage-account ${STORAGE_ACCOUNT_NAME}
