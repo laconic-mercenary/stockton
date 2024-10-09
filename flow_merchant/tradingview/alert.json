@@ -2,7 +2,7 @@
     "action" : "buy",
     "ticker" : "{{ticker}}",
     "key" : "STOCKTON_KEY",
-    "notes" : "ver=20240922;high={{high}};low={{low}};exchange={{exchange}};open={{open}};interval={{interval}};suggested_stoploss=0.05;takeprofit_percent=0.05",
+    "notes" : "ver=20240922;high={{high}};low={{low}};exchange={{exchange}};open={{open}};interval={{interval}};high_interval=;low_interval=;suggested_stoploss=0.05;takeprofit_percent=0.05",
     "close" : {{close}},
     "contracts" : 1
 }

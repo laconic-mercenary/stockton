@@ -9,9 +9,6 @@ from azure.data.tables import TableServiceClient
 
 app = func.FunctionApp()
 
-def unix_timestamp() -> int:
-    return int(time.time())
-
 ##
 # Merchant API
 ##
@@ -50,6 +47,12 @@ def merchant_consumer(msg: func.QueueMessage) -> None:
             logging.error(f"error handling market signal {signal.id()}, {e}")
             return
         
+"""
+UTILS
+"""
+def unix_timestamp() -> int:
+    return int(time.time())
+
 
 """
 BROKER
@@ -81,12 +84,6 @@ def S_ACTION_BUY():
 def S_ACTION_SELL():
     return "sell"
 
-def M_STORAGE_STATUS_CLOSED():
-    return "closed"
-
-def M_STORAGE_STATUS_OPEN():
-    return "open"
-
 def M_STATE_SHOPPING():
     return "shopping"
 
@@ -117,11 +114,44 @@ def M_STATE_KEY_LAST_ACTION_TIME():
 def M_STATE_KEY_TICKER():
     return "ticker"
 
+def M_STATE_KEY_INTERVAL():
+    return "interval"
+
+def M_STATE_REST_INTERVAL():
+    return "rest_interval"
+
 def M_STATE_KEY_HIGH_INTERVAL():
     return "high_interval"
 
 def M_STATE_KEY_LOW_INTERVAL():
     return "low_interval"
+
+def M_STATE_KEY_ID():
+    return "id"
+
+def M_STATE_KEY_VERSION():
+    return "version"
+
+def M_STATE_KEY_ACTION():
+    return "action"
+
+def M_STATE_KEY_TICKER():
+    return "ticker"
+
+def M_STATE_KEY_CLOSE():
+    return "close"
+
+def M_STATE_KEY_SUGGESTED_STOPLOSS():
+    return "suggested_stoploss"
+
+def M_STATE_KEY_HIGH():
+    return "high"
+
+def M_STATE_KEY_LOW():
+    return "low"
+
+def M_STATE_KEY_TAKEPROFIT_PERCENT():
+    return "takeprofit_percent"
 
 def M_BIAS_BULLISH():
     return "bullish"
@@ -136,7 +166,7 @@ class MerchantSignal:
         self.msg = msg_body
         self.notes = self._parse_notes()
         self.TABLE_NAME = "flowmerchant"
-        self.id = str(uuid.uuid4())
+        self._id = str(uuid.uuid4())
 
     def action(self):
         return self.get('action')
@@ -149,6 +179,12 @@ class MerchantSignal:
         
     def interval(self):
         return self.notes.get('interval')
+    
+    def high_interval(self):
+        return self.notes.get('high_interval')
+    
+    def low_interval(self):
+        return self.notes.get('low_interval')
 
     def suggested_stoploss(self):
         return self.notes.get('suggested_stoploss')
@@ -166,7 +202,7 @@ class MerchantSignal:
         return self.notes.get('version')
 
     def id(self):
-        return self.id
+        return self._id
 
     def _parse_notes(self):
         notes = self.get('notes')
@@ -178,8 +214,8 @@ class MerchantSignal:
                     key, value = pair.split('=')
                     key = key.strip()
                     value = value.strip()
-                    if key in ["suggested_stoploss", "high",  "low", "takeprofit_percent"]:
-                        parsed_notes = float(value)
+                    if key in ["version", "suggested_stoploss", "high",  "low", "takeprofit_percent"]:
+                        parsed_notes[key] = float(value)
                     else:
                         parsed_notes[key] = value
         return parsed_notes
@@ -201,7 +237,7 @@ class MerchantSignal:
 class Merchant:
     def __init__(self, table_service: TableServiceClient, broker: Broker) -> None:
         if table_service is None:
-            raise ValueError("Table service cannot be null")
+            raise ValueError("TableService cannot be null")
         if broker is None:
             raise ValueError("Broker cannot be null")
         self.state = None
@@ -211,10 +247,11 @@ class Merchant:
         table_service.create_table_if_not_exists(table_name=self.TABLE_NAME)
 
     def handle_market_signal(self, signal: MerchantSignal) -> None:
-        self.log_debug(f"handle_market_signal() - {signal.id()}")
-        self.log_info(f"received signal - id={signal.id()} - {signal.info()}")
+        logging.debug(f"handle_market_signal() - {signal.id()}")
+        logging.info(f"received signal - id={signal.id()} - {signal.info()}")
         try:
-            self.load_config()
+            self.load_config_from_signal(signal)
+            self.load_config_from_env() # env should override signal configs
             self.load_state_from_storage()
             if self.status() == M_STATE_SHOPPING():
                 self._handle_signal_when_shopping(signal)
@@ -227,68 +264,54 @@ class Merchant:
             else:
                 raise ValueError(f"Unknown state {self.status()}")
         finally:
-            self.log_info(f"finished handling signal - id={signal.id()}")
+            logging.info(f"finished handling signal - id={signal.id()}")
     
     def load_state_from_storage(self) -> None:
         self.log_debug(f"load_state_from_storage()")
-        query_filter = f"{M_STATE_KEY_PARTITIONKEY()} eq '{self.merchant_id()}' and {M_STATE_KEY_STATUS()} eq '{M_STORAGE_STATUS_OPEN()}'"
-        rows = self.table_service.query_entities(query_filter=query_filter)
+        query_filter = f"{M_STATE_KEY_PARTITIONKEY()} eq '{self.merchant_id()}'"
+        rows = self.table_service.query_entities(query_filter)
         if len(rows) > 1:
             raise ValueError(f"Multiple open merchants found for {self.merchant_id()}")
         else:
-            """
-            Table Rows
-            - position_data (json)
-                - entry_price
-                - entry_time
-                - contracts
-            - ticker
-            - high_interval
-            - low_interval
-            - bias
-            - merchant_id
-            - merchant_state
-            - merchant_lastaction_time
-            - RowKey
-            - PartitionId
-            """
             if len(rows) == 1:
-                self.log_debug(f"found existing merchant - id={self.merchant_id()}")
+                logging.info(f"found existing merchant - id={self.merchant_id()}")
                 row = rows[0]
-                merchant_state = { }
-                merchant_state[M_STATE_KEY_PARTITIONKEY()] = row.get(M_STATE_KEY_PARTITIONKEY())
-                merchant_state[M_STATE_KEY_ROWKEY()] = row.get(M_STATE_KEY_ROWKEY())
-                merchant_state[M_STATE_KEY_POSITION_DATA()] = json.loads(row.get(M_STATE_KEY_POSITION_DATA())),
-                merchant_state[M_STATE_KEY_STATUS()] = row.get(M_STATE_KEY_STATUS()),
-                merchant_state[M_STATE_KEY_LAST_ACTION_TIME()] = row.get(M_STATE_KEY_LAST_ACTION_TIME()),
-                merchant_state[M_STATE_KEY_TICKER()] = row.get(M_STATE_KEY_TICKER()),
-                merchant_state[M_STATE_KEY_HIGH_INTERVAL()] = row.get(M_STATE_KEY_HIGH_INTERVAL())
-                merchant_state[M_STATE_KEY_LOW_INTERVAL()] = row.get(M_STATE_KEY_LOW_INTERVAL())
-                self.state = merchant_state
+                current_state = row[M_STATE_KEY_STATUS()]
+                if not current_state in [M_STATE_SHOPPING(), M_STATE_BUYING(), M_STATE_SELLING(), M_STATE_RESTING()]:
+                    raise ValueError(f"Unknown state found in storage {current_state}")
+                self.state[M_STATE_KEY_STATUS()] = current_state
             else:
-                self.log_debug(f"no open merchants found for {self.merchant_id()}, creating new...")
-                merchant_state = { }
-                merchant_state[M_STATE_KEY_PARTITIONKEY()] = self.merchant_id()
-                merchant_state[M_STATE_KEY_ROWKEY()] = unix_timestamp()
-                merchant_state[M_STATE_KEY_POSITION_DATA()] = json.dumps({})
-                merchant_state[M_STATE_KEY_STATUS()] = M_STATE_SHOPPING()
-                merchant_state[M_STATE_KEY_LAST_ACTION_TIME()] = unix_timestamp()
-                merchant_state[M_STATE_KEY_TICKER()] = self.merchant_id()
-                merchant_state[M_STATE_KEY_HIGH_INTERVAL()] = "-"
-                merchant_state[M_STATE_KEY_LOW_INTERVAL()] = "-"
-                self.table_service.insert_entity(table_name=self.table_name, entity=merchant_state)
-                self.state = merchant_state
+                logging.info(f"no open merchants found for {self.merchant_id()}, creating new...")
+                self.state[M_STATE_KEY_STATUS()] = M_STATE_SHOPPING()
+                self.table_service.insert_entity(table_name=self.TABLE_NAME, entity=self.state)
 
+    def load_config_from_env(self) -> None:
+        """
+        currently no properties that need to be loaded from env. 
+        env loaded config would be global to all merchant instances.
+        so preferrable to config from the signal, unless there are security implications
+        """
+        logging.debug(f"load_config_from_env()")
 
-    def load_config(self) -> None:
-        self.log_debug(f"load_config()")
-        # low_interval = os.environ.get(M_CFG_LOW_INTERVAL())
-        # if not low_interval:
-        #     raise ValueError(f"Environment variable {M_CFG_LOW_INTERVAL()} not set")
-        # self.low_interval = low_interval
-
+    def load_config_from_signal(self, signal: MerchantSignal) -> None:
+        logging.debug(f"load_config_from_signal()")
+        if self.state is None:
+            self.state = {}
+        self.state[M_STATE_KEY_ID()] = signal.id()
+        self.state[M_STATE_KEY_VERSION()] = signal.version()
+        self.state[M_STATE_KEY_ACTION()] = signal.action()
+        self.state[M_STATE_KEY_TICKER()] = signal.ticker()
+        self.state[M_STATE_KEY_CLOSE()] = signal.close()
+        self.state[M_STATE_KEY_SUGGESTED_STOPLOSS()] = signal.suggested_stoploss()
+        self.state[M_STATE_KEY_HIGH()] = signal.high()
+        self.state[M_STATE_KEY_LOW()] = signal.low()
+        self.state[M_STATE_KEY_TAKEPROFIT_PERCENT()] = signal.takeprofit_percent()
+        ## self.state[M_STATE_KEY_STATE()] = M_STATE_SHOPPING()
+        self.state[M_STATE_KEY_HIGH_INTERVAL()] = signal.high_interval()
+        self.state[M_STATE_KEY_LOW_INTERVAL()] = signal.low_interval()
+        
     def _handle_signal_when_shopping(self, signal: MerchantSignal) -> None:
-        self.log_debug(f"_handle_signal_when_shopping()")
+        logging.debug(f"_handle_signal_when_shopping()")
         if signal.interval() == self.high_interval():
             if signal.action() == S_ACTION_BUY():
                 self._start_buying()
@@ -301,8 +324,6 @@ class Merchant:
                 take_profit = signal.close() + (signal.close() * signal.takeprofit_percent())
                 self.broker.place_market_order(signal.ticker(), take_profit, signal.suggested_stoploss())
                 self._start_selling()
-            else:
-                raise ValueError(f"Unknown action {signal.action()}")
         elif signal.interval() == self.high_interval():
             if signal.action() == S_ACTION_SELL():
                 self._start_shopping()
@@ -312,7 +333,7 @@ class Merchant:
         if signal.interval() == self.low_interval():
             if signal.action() == S_ACTION_SELL():
                 ## do nothing - allow take profit and stop loss to trigger
-                pass
+                self._start_resting()
         elif signal.interval() == self.high_interval():
             if signal.action() == S_ACTION_SELL():
                 self.broker.sell_all_orders_for(signal.ticker())
@@ -340,7 +361,7 @@ class Merchant:
         self._sync_with_storage()
 
     def _start_selling(self) -> None:
-        self.log_debugg_debug(f"_start_selling()")
+        self.log_debug(f"_start_selling()")
         self.state[M_STATE_KEY_STATUS()] = M_STATE_SELLING()
         self.state[M_STATE_KEY_LAST_ACTION_TIME()] = unix_timestamp()
         self._sync_with_storage()
@@ -353,7 +374,7 @@ class Merchant:
 
     def _sync_with_storage(self) -> None:
         self.log_debug(f"_sync_with_storage()")
-        self.table_client.update_entity(entity=self.state)
+        self.table_service.update_entity(entity=self.state)
 
     def _log_preamble(self) -> str:
         return f"[{self.merchant_id()}, {self.state}, +{self.high_interval()}, -{self.low_interval()}]"
@@ -367,28 +388,177 @@ class Merchant:
     ## properties
     def merchant_id(self) -> str:
         ## this should come from tradingview
-        return f"{self.ticker()}-{self.interval()}"
+        ticker = self.state.get(M_STATE_KEY_TICKER())
+        interval = self.state.get(M_STATE_KEY_LOW_INTERVAL())
+        if ticker is None or interval is None:
+            raise ValueError("ticker and/or interval not set")
+        return f"{ticker}-{interval}"
 
-    def loaded(self) -> bool:
-        return self.state is not None
-    
     def status(self) -> str:
-        ## this should come from storage
-        return self.state.get('status')
+        return self.state.get(M_STATE_KEY_STATUS())
     
     def high_interval(self) -> str:
         ## this should come from merchant config
-        return self.state.get('high_interval')
+        return self.state.get(M_STATE_KEY_HIGH_INTERVAL())
     
     def low_interval(self) -> str:
         ## this should come from merchant config
-        return self.state.get('low_interval')
+        return self.state.get(M_STATE_KEY_LOW_INTERVAL())
         
     def last_action_time(self) -> int:
         ## this should come from storage
-        return int(self.state.get('last_action_time'))
+        return int(self.state.get(M_STATE_KEY_LAST_ACTION_TIME()))
     
     def rest_interval_ms(self) -> int:
         ## this should come from merchant config
-        return int(self.state.get('rest_interval'))
+        return int(self.state.get(M_STATE_REST_INTERVAL()))
     
+
+import unittest
+from unittest.mock import Mock, patch
+
+class TestFlowMerchant(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def create_state(self, id, version, action, ticker, close, suggested_stoploss, high, low, takeprofit_percent, status, high_interval, low_interval):
+        return {
+            M_STATE_KEY_ID(): id,
+            M_STATE_KEY_VERSION(): version,
+            M_STATE_KEY_ACTION(): action,
+            M_STATE_KEY_TICKER(): ticker,
+            M_STATE_KEY_CLOSE(): close,
+            M_STATE_KEY_SUGGESTED_STOPLOSS(): suggested_stoploss,
+            M_STATE_KEY_HIGH(): high,
+            M_STATE_KEY_LOW(): low,
+            M_STATE_KEY_TAKEPROFIT_PERCENT(): takeprofit_percent,
+            M_STATE_KEY_STATUS(): status,
+            M_STATE_KEY_HIGH_INTERVAL(): high_interval,
+            M_STATE_KEY_LOW_INTERVAL(): low_interval
+        }
+
+    def test_merchant_e2e(self):
+        table_client_mock = Mock()        
+        table_client_mock.query_entities.return_value = [ ]
+        broker_mock = Mock()
+        
+        # Optionally, you can verify it was called with specific arguments
+        # table_client_mock.query_entities.assert_called_with(some_arg1, some_arg2)
+
+        # If you want to check how many times it was called
+        # self.assertEqual(table_client_mock.query_entities.call_count, 1)
+        signal_data = """
+        {
+            "action" : "buy",
+            "ticker" : "AAPL",
+            "key" : "STOCKTON_KEY",
+            "notes" : "ver=20240922;high=105.0;low=95.0;exchange=NASDAQ;open=98.0;interval=1h;high_interval=1h;low_interval=1m;suggested_stoploss=0.05;takeprofit_percent=0.05;rest_interval=3000",
+            "close" : 103.0,
+            "contracts" : 1
+        }
+        """
+        first_signal = MerchantSignal(json.loads(signal_data))
+        flow_merchant = Merchant(table_client_mock, broker=broker_mock)
+        flow_merchant.handle_market_signal(first_signal)
+
+        table_client_mock.create_table_if_not_exists.assert_called()
+        table_client_mock.query_entities.assert_called()
+
+        assert flow_merchant.status() == M_STATE_BUYING()
+        assert flow_merchant.last_action_time() > 0
+        assert flow_merchant.high_interval() == "1h"
+        assert flow_merchant.low_interval() == "1m"
+        assert flow_merchant.merchant_id() == "AAPL-1m"
+
+        second_signal_data = """
+        {
+            "action" : "buy",
+            "ticker" : "AAPL",
+            "key" : "STOCKTON_KEY",
+            "notes" : "ver=20240922;high=105.0;low=95.0;exchange=NASDAQ;open=98.0;interval=1m;high_interval=1h;low_interval=1m;suggested_stoploss=0.05;takeprofit_percent=0.05;rest_interval=3000",
+            "close" : 103.0,
+            "contracts" : 1
+        }
+        """
+        
+        table_client_mock.query_entities.return_value = [
+            {
+                'PartitionKey': 'AAPL-1m', 
+                'RowKey': unix_timestamp(), 
+                'position_data': '{}', 
+                'status': 'buying', 
+                'merchant_lastaction_time': 1726990626, 
+                'ticker': 'AAPL', 
+                'high_interval': '1h', 
+                'low_interval': '1m'
+            }
+        ]
+        print(flow_merchant.state)
+        second_signal = MerchantSignal(json.loads(second_signal_data))
+        flow_merchant.handle_market_signal(second_signal)
+        print(flow_merchant.state)
+
+        assert flow_merchant.status() == M_STATE_SELLING()
+
+
+        third_signal_data = """
+        {
+            "action" : "buy",
+            "ticker" : "AAPL",
+            "key" : "STOCKTON_KEY",
+            "notes" : "ver=20240922;high=105.0;low=95.0;exchange=NASDAQ;open=98.0;interval=1m;high_interval=1h;low_interval=1m;suggested_stoploss=0.05;takeprofit_percent=0.05;rest_interval=3000",
+            "close" : 103.0,
+            "contracts" : 1
+        }
+        """
+
+        table_client_mock.query_entities.return_value = [
+            {
+                'PartitionKey': 'AAPL-1m', 
+                'RowKey': unix_timestamp(), 
+                'position_data': '{}', 
+                'status': 'selling', 
+                'merchant_lastaction_time': 1727000626, 
+                'ticker': 'AAPL', 
+                'high_interval': '1h', 
+                'low_interval': '1m'
+            }
+        ]
+
+        third_signal = MerchantSignal(json.loads(third_signal_data))
+        flow_merchant.handle_market_signal(third_signal)
+        
+        assert flow_merchant.status() == M_STATE_SELLING()
+
+        forth_signal_data = """
+        {
+            "action" : "sell",
+            "ticker" : "AAPL",
+            "key" : "STOCKTON_KEY",
+            "notes" : "ver=20240922;high=105.0;low=95.0;exchange=NASDAQ;open=98.0;interval=1m;high_interval=1h;low_interval=1m;suggested_stoploss=0.05;takeprofit_percent=0.05;rest_interval=3000",
+            "close" : 103.0,
+            "contracts" : 1
+        }
+        """
+
+        table_client_mock.query_entities.return_value = [
+            {
+                'PartitionKey': 'AAPL-1m', 
+                'RowKey': unix_timestamp(), 
+                'position_data': '{}', 
+                'status': 'selling', 
+                'merchant_lastaction_time': 1727000626, 
+                'ticker': 'AAPL', 
+                'high_interval': '1h', 
+                'low_interval': '1m'
+            }
+        ]
+
+        forth_signal = MerchantSignal(json.loads(forth_signal_data))
+        flow_merchant.handle_market_signal(forth_signal)
+        
+        assert flow_merchant.status() == M_STATE_RESTING()
+
+
+if __name__ == '__main__':
+    unittest.main()

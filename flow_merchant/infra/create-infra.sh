@@ -12,7 +12,7 @@ RESOURCE_GROUP_NAME='stockton-jpe01'
 STORAGE_ACCOUNT_NAME='stocktonjpe01fm'
 STORAGE_ACCOUNT_LOCATION='japaneast'
 FUNCTION_NAME="${RESOURCE_GROUP_NAME}-flow-merchant"
-TABLE_NAME='merchantsignals'
+TABLE_NAME='flowmerchant'
 QUEUE_NAME='merchantsignals'
 
 echo "Creating storage account..."
@@ -68,7 +68,6 @@ az storage table policy create --name ${TABLE_NAME}crud \
                                 --permissions rad \
                                 --start ${DATE_START} 
                                 
-
 echo "Creating function app..."
 az functionapp create --resource-group ${RESOURCE_GROUP_NAME} \
     --consumption-plan-location ${STORAGE_ACCOUNT_LOCATION} \
@@ -78,6 +77,11 @@ az functionapp create --resource-group ${RESOURCE_GROUP_NAME} \
     --functions-version 4 \
     --name ${FUNCTION_NAME} \
     --storage-account ${STORAGE_ACCOUNT_NAME}
+
+echo "Setting storage account connection string..."
+az functionapp config appsettings set --name ${FUNCTION_NAME} \
+    --resource-group ${RESOURCE_GROUP_NAME} \
+    --settings "storageAccountConnectionString=${CONNECTION_STRING}"
 
 echo "Storage account, queue, and table created successfully."
 
