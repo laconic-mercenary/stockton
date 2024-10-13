@@ -6,3 +6,27 @@
     "close" : {{close}},
     "contracts" : 1
 }
+
+{
+    "action" : "sell",
+    "ticker" : "{{ticker}}",
+    "key" : "STOCKTON_KEY",
+    "exchange" : "{{exchange}}",
+    "version" : 20241010,
+    "price" : {
+        "close":  {{close}},
+        "high": {{high}},
+        "low": {{low}},
+        "open": {{open}},
+    },
+    "order": {
+        "contracts" : 1,
+        "stop_loss_percent" : 0.05,
+        "take_profit_percent" : 0.05,
+    },
+    "time_frame": {
+        "interval": "{{interval}}",
+        "high_interval": "1d",
+        "low_interval": "1h",
+    }
+}

@@ -22,13 +22,6 @@ def merchant_api(req: func.HttpRequest) -> func.HttpResponse:
     if req.method == "GET":
         if 'health' in req.params:
             return func.HttpResponse("OK", status_code=200)
-        if 'events_test' in req.params:
-            try:
-                default_event_logger().log_event("events_test")
-                return func.HttpResponse("OK", status_code=200)
-            except Exception as e:
-                logging.error(f"error logging event, {e}")
-                return func.HttpResponse(f"error logging event, {e}", status_code=500)
         with TableServiceClient.from_connection_string(os.environ['storageAccountConnectionString']) as table_service:
             table_client = table_service.get_table_client(table_name="flowmerchant")
             entities = table_client.list_entities()
@@ -39,42 +32,42 @@ def merchant_api(req: func.HttpRequest) -> func.HttpResponse:
         headers = dict(req.headers)
         logging.info(f"received merchant signal: {body}")
         logging.info(f"headers: {headers}")
-        with TableServiceClient.from_connection_string(os.environ['storageAccountConnectionString']) as table_service:
-            broker = default_broker()
-            event_logger = default_event_logger()
-            try:
-                event_logger.log_notice(f"received market signal - {body}")
+        try:
+            with TableServiceClient.from_connection_string(os.environ['storageAccountConnectionString']) as table_service:
+                broker = default_broker()
+                event_logger = default_event_logger()
                 message_body = json.loads(body)
                 signal = MerchantSignal.parse(message_body)
+                event_logger.log_notice(f"received market signal: {body} - which is {signal.info()}")
                 merchant = Merchant(table_service, broker, event_logger)
                 merchant.handle_market_signal(signal)
-            except Exception as e:
-                logging.error(f"error handling market signal {body}, {e}", exc_info=True)
-                event_logger.log_error(f"error handling market signal {body}, {e}")
+        except Exception as e:
+            logging.error(f"error handling market signal {body}, {e}", exc_info=True)
+            event_logger.log_error(f"error handling market signal {body}, {e}")
                                     
 ##
 # Merchant Consumer
 ##
 
-@app.function_name(name="merchant_consumer")
-@app.queue_trigger(arg_name="msg", 
-                    queue_name="merchantsignals",
-                    connection="storageAccountConnectionString")
-def merchant_consumer(msg: func.QueueMessage) -> None:
-    body = msg.get_body().decode('utf-8')
-    logging.info("received merchant signal: {body}")
-    with TableServiceClient.from_connection_string(os.environ['storageAccountConnectionString']) as table_service:
-        broker = default_broker()
-        event_logger = default_event_logger()
-        try:
-            event_logger.log_notice(f"received market signal - {body}")
-            message_body = json.loads(body)
-            signal = MerchantSignal.parse(message_body)
-            merchant = Merchant(table_service, broker, event_logger)
-            merchant.handle_market_signal(signal)
-        except Exception as e:
-            logging.error(f"error handling market signal {body}, {e}", exc_info=True)
-            event_logger.log_error(f"error handling market signal {body}, {e}")
+# @app.function_name(name="merchant_consumer")
+# @app.queue_trigger(arg_name="msg", 
+#                     queue_name="merchantsignals",
+#                     connection="storageAccountConnectionString")
+# def merchant_consumer(msg: func.QueueMessage) -> None:
+#     body = msg.get_body().decode('utf-8')
+#     logging.info("received merchant signal: {body}")
+#     with TableServiceClient.from_connection_string(os.environ['storageAccountConnectionString']) as table_service:
+#         broker = default_broker()
+#         event_logger = default_event_logger()
+#         try:
+#             event_logger.log_notice(f"received market signal - {body}")
+#             message_body = json.loads(body)
+#             signal = MerchantSignal.parse(message_body)
+#             merchant = Merchant(table_service, broker, event_logger)
+#             merchant.handle_market_signal(signal)
+#         except Exception as e:
+#             logging.error(f"error handling market signal {body}, {e}", exc_info=True)
+#             event_logger.log_error(f"error handling market signal {body}, {e}")
         
 """
 UTILS
@@ -95,9 +88,6 @@ def DISCORD_ENV_WEBHOOK_URL():
 
 class EventLoggable(ABC):
     @abstractmethod
-    def log_event(self, message):
-        pass
-    @abstractmethod
     def log_notice(self, message):
         pass
     @abstractmethod
@@ -108,8 +98,6 @@ class EventLoggable(ABC):
         pass
 
 class ConsoleLogger(EventLoggable):
-    def log_event(self, message):
-        print(message)
     def log_notice(self, message):
         print(message)
     def log_error(self, message):
@@ -120,9 +108,6 @@ class ConsoleLogger(EventLoggable):
 class DiscordClient(EventLoggable):
     def __init__(self):
         self.base_url = os.environ[DISCORD_ENV_WEBHOOK_URL()]
-
-    def log_event(self, message):
-        self.log_notice(message)
 
     def log_notice(self, message):
         message = {
@@ -280,6 +265,9 @@ def M_STATE_KEY_LOW():
 def M_STATE_KEY_TAKEPROFIT_PERCENT():
     return "takeprofit_percent"
 
+def M_STATE_KEY_MERCHANT_ID():
+    return "merchant_id"
+
 def M_BIAS_BULLISH():
     return "bullish"
 
@@ -313,6 +301,9 @@ def S_ALERT_KEY_HIGH_INTERVAL():
 def S_ALERT_KEY_LOW_INTERVAL():
     return "low_interval"
 
+def S_ALERT_KEY_INTERVAL():
+    return "interval"
+
 def S_ALERT_KEY_TAKEPROFIT_PERCENT():
     return "takeprofit_percent"
 
@@ -323,7 +314,7 @@ def S_ALERT_KEY_CONTRACTS():
     return "contracts"
 
 def S_ALERT_KEY_VERSION():
-    return "version"
+    return "ver"
 
 def S_ALERT_REST_INTERVAL():
     return "rest_interval_minutes"
@@ -341,35 +332,36 @@ class MerchantSignal:
     def parse(msg_body):
         if not msg_body:
             raise ValueError("Message body cannot be null")
+        if S_ALERT_KEY_ACTION() not in msg_body:
+            logging.error(f"Action is null: {msg_body.get(S_ALERT_KEY_ACTION())}")
+            raise ValueError("Action cannot be null")
         if msg_body[S_ALERT_KEY_ACTION()] not in [S_ACTION_BUY(), S_ACTION_SELL()]:
             logging.error(f"Invalid action: {msg_body[S_ALERT_KEY_ACTION()]}")
             raise ValueError("Invalid action")
-        if not msg_body[S_ALERT_KEY_TICKER()]:
-            logging.error(f"Ticker is null: {msg_body[S_ALERT_KEY_TICKER()]}")
+        if S_ALERT_KEY_TICKER() not in msg_body:
+            logging.error(f"Ticker is null: {msg_body.get(S_ALERT_KEY_TICKER())}")
             raise ValueError("Ticker cannot be null")
-        if not msg_body[S_ALERT_KEY_TICKER()]:
-            logging.error(f"Invalid ticker: {msg_body[S_ALERT_KEY_TICKER()]}")
-            raise ValueError("Ticker must be a string")
-        if not msg_body[S_ALERT_KEY_CLOSE()]:
-            logging.error(f"Close is null: {msg_body[S_ALERT_KEY_CLOSE()]}")
+        if S_ALERT_KEY_CLOSE() not in msg_body:
+            logging.error(f"Close is null: {msg_body.get(S_ALERT_KEY_CLOSE())}")
             raise ValueError("Close cannot be null")
-        if not msg_body[S_ALERT_KEY_CLOSE()]:
-            logging.error(f"Invalid close: {msg_body[S_ALERT_KEY_CLOSE()]}")
-            raise ValueError("Close must be a number")
         if not isinstance(msg_body[S_ALERT_KEY_CLOSE()], float):
             logging.error(f"Invalid close: {msg_body[S_ALERT_KEY_CLOSE()]}")
             raise ValueError("Close must be a number")
-        if not msg_body[S_ALERT_KEY_NOTES()]:
-            logging.error(f"Notes are null: {msg_body[S_ALERT_KEY_NOTES()]}")
+        if S_ALERT_KEY_NOTES() not in msg_body:
+            logging.error(f"Notes are null: {msg_body.get(S_ALERT_KEY_NOTES())}")
             raise ValueError("Notes cannot be null")
-        if not msg_body[S_ALERT_KEY_CONTRACTS()]:
-            logging.error(f"Contracts are null: {msg_body[S_ALERT_KEY_CONTRACTS()]}")
+        if S_ALERT_KEY_CONTRACTS() not in msg_body:
+            logging.error(f"Contracts are null: {msg_body.get(S_ALERT_KEY_CONTRACTS())}")
             raise ValueError("Contracts cannot be null")
         if not isinstance(msg_body[S_ALERT_KEY_CONTRACTS()], int):
             logging.error(f"Invalid contracts: {msg_body[S_ALERT_KEY_CONTRACTS()]}")
             raise ValueError("Contracts must be an integer")
+        for notes_key in [S_ALERT_KEY_HIGH(), S_ALERT_KEY_LOW(), S_ALERT_KEY_SUGGESTED_STOPLOSS(), S_ALERT_KEY_TAKEPROFIT_PERCENT(), S_ALERT_KEY_HIGH_INTERVAL(), S_ALERT_KEY_LOW_INTERVAL(), S_ALERT_KEY_VERSION()]:
+            if notes_key not in msg_body[S_ALERT_KEY_NOTES()]:
+                logging.error(f"missing required notes entry: {notes_key}")
+                raise ValueError("Missing required notes entry for key: " + notes_key)
         return MerchantSignal(msg_body)
-
+    
     def action(self):
         return self.get(S_ALERT_KEY_ACTION())
     
@@ -378,9 +370,9 @@ class MerchantSignal:
     
     def close(self):
         return self.get(S_ALERT_KEY_CLOSE())
-        
+
     def interval(self):
-        return self.notes.get(S_ALERT_KEY_CLOSE())
+        return self.notes.get(S_ALERT_KEY_INTERVAL())
     
     def high_interval(self):
         return self.notes.get(S_ALERT_KEY_HIGH_INTERVAL())
@@ -401,7 +393,7 @@ class MerchantSignal:
         return self.notes.get(S_ALERT_KEY_TAKEPROFIT_PERCENT())
     
     def contracts(self):
-        return self.notes.get(S_ALERT_KEY_CONTRACTS())
+        return self.get(S_ALERT_KEY_CONTRACTS())
 
     def version(self):
         return self.notes.get(S_ALERT_KEY_VERSION())
@@ -422,14 +414,16 @@ class MerchantSignal:
                     key, value = pair.split('=')
                     key = key.strip()
                     value = value.strip()
-                    if key in [S_ALERT_KEY_VERSION(), S_ALERT_KEY_SUGGESTED_STOPLOSS(), S_ALERT_KEY_HIGH(),  S_ALERT_KEY_LOW(), S_ALERT_KEY_TAKEPROFIT_PERCENT()]:
+                    if key in [S_ALERT_KEY_SUGGESTED_STOPLOSS(), S_ALERT_KEY_HIGH(),  S_ALERT_KEY_LOW(), S_ALERT_KEY_TAKEPROFIT_PERCENT()]:
                         parsed_notes[key] = float(value)
+                    elif key in [S_ALERT_KEY_VERSION()]:
+                        parsed_notes[key] = int(value)
                     else:
                         parsed_notes[key] = value
         return parsed_notes
 
     def __str__(self) -> str:
-        return json.dumps(self.msg)
+        return f"action={self.action()}, ticker={self.ticker()}, close={self.close()}, interval={self.interval()}, high_interval={self.high_interval()}, low_interval={self.low_interval()}, suggested_stoploss={self.suggested_stoploss()}, high={self.high()}, low={self.low()}, takeprofit_percent={self.takeprofit_percent()}, contracts={self.contracts()}, version={self.version()}, rest_interval={self.rest_interval()}, id={self.id()}"
 
     def info(self) -> str:
         return str(self)
@@ -444,6 +438,7 @@ class MerchantSignal:
 
 class Merchant:
     def __init__(self, table_service: TableServiceClient, broker: MarketOrderable, events_logger: EventLoggable) -> None:
+        logging.debug(f"Merchant()")
         if table_service is None:
             raise ValueError("TableService cannot be null")
         if broker is None:
@@ -460,43 +455,49 @@ class Merchant:
     def handle_market_signal(self, signal: MerchantSignal) -> None:
         logging.debug(f"handle_market_signal() - {signal.id()}")
         logging.info(f"received signal - id={signal.id()} - {signal.info()}")
-        self.events_logger.log_event(f"received signal - {signal.ticker()} {signal.interval()} {signal.action()}")
+        handled = False
         try:
             self.load_config_from_signal(signal)
             self.load_config_from_env() # env should override signal configs
-            self.load_state_from_storage()
+            self.load_state_from_storage(signal)
             if self.status() == M_STATE_SHOPPING():
-                self._handle_signal_when_shopping(signal)
+                handled = self._handle_signal_when_shopping(signal)
             elif self.status() == M_STATE_BUYING():
-                self._handle_signal_when_buying(signal)
+                handled = self._handle_signal_when_buying(signal)
             elif self.status() == M_STATE_SELLING():
-                self._handle_signal_when_selling(signal)
+                handled = self._handle_signal_when_selling(signal)
             elif self.status() == M_STATE_RESTING():
-                self._handle_signal_when_resting(signal)
+                handled = self._handle_signal_when_resting(signal)
             else:
                 raise ValueError(f"Unknown state {self.status()}")
         finally:
+            if not handled:
+                self._merchant_says(self.get_merchant_id(signal), f"Nothing for me to do, I'm in {self.state[M_STATE_KEY_STATUS()]} mode")
             logging.info(f"finished handling signal - id={signal.id()}")
     
-    def load_state_from_storage(self) -> None:
-        self.log_debug(f"load_state_from_storage()")
-        query_filter = f"{M_STATE_KEY_PARTITIONKEY()} eq '{self.merchant_id()}'"
+    def load_state_from_storage(self, signal: MerchantSignal) -> None:
+        logging.debug(f"load_state_from_storage()")
+        merchant_id = self.get_merchant_id(signal)
+        query_filter = f"{M_STATE_KEY_MERCHANT_ID()} eq '{merchant_id}'"
         client = self.table_service.get_table_client(table_name=self.TABLE_NAME)
         rows = list(client.query_entities(query_filter))
         if len(rows) > 1:
-            raise ValueError(f"Multiple open merchants found for {self.merchant_id()}")
+            raise ValueError(f"Multiple open merchants found for {merchant_id}")
         else:
             if len(rows) == 1:
-                logging.info(f"found existing merchant - id={self.merchant_id()}")
+                logging.info(f"found existing merchant - id={merchant_id}")
                 row = rows[0]
                 current_state = row[M_STATE_KEY_STATUS()]
                 if not current_state in [M_STATE_SHOPPING(), M_STATE_BUYING(), M_STATE_SELLING(), M_STATE_RESTING()]:
                     raise ValueError(f"Unknown state found in storage {current_state}")
                 self.state[M_STATE_KEY_STATUS()] = current_state
+                self.state[M_STATE_KEY_PARTITIONKEY()] = row[M_STATE_KEY_PARTITIONKEY()]
+                self.state[M_STATE_KEY_ROWKEY()] = row[M_STATE_KEY_ROWKEY()]
             else:
-                logging.info(f"no open merchants found for {self.merchant_id()}, creating new...")
+                logging.info(f"no open merchants found for {merchant_id}, creating new...")
                 self.state[M_STATE_KEY_STATUS()] = M_STATE_SHOPPING()
                 client.create_entity(entity=self.state)
+                self._merchant_happily_says(self.get_merchant_id(signal), f"I'm the new guy! Time to go shopping for {signal.ticker()}")
 
     def load_config_from_env(self) -> None:
         """
@@ -510,9 +511,10 @@ class Merchant:
         logging.debug(f"load_config_from_signal()")
         if self.state is None:
             self.state = {}
-        self.state[M_STATE_KEY_PARTITIONKEY()] = f"stockton-{signal.ticker()}-{signal.low_interval()}-{signal.high_interval()}-{signal.version()}"
+        self.state[M_STATE_KEY_PARTITIONKEY()] = self.get_merchant_id(signal)
         self.state[M_STATE_KEY_ROWKEY()] = f"stockton-{signal.ticker()}-{signal.id()}"
         self.state[M_STATE_KEY_ID()] = signal.id()
+        self.state[M_STATE_KEY_MERCHANT_ID()] = self.get_merchant_id(signal)
         self.state[M_STATE_KEY_VERSION()] = signal.version()
         self.state[M_STATE_KEY_ACTION()] = signal.action()
         self.state[M_STATE_KEY_TICKER()] = signal.ticker()
@@ -524,11 +526,10 @@ class Merchant:
         ## self.state[M_STATE_KEY_STATE()] = M_STATE_SHOPPING()
         self.state[M_STATE_KEY_HIGH_INTERVAL()] = signal.high_interval()
         self.state[M_STATE_KEY_LOW_INTERVAL()] = signal.low_interval()
-        self.state[M_STATE_KEY_INTERVAL()] = signal.interval()
         self.state[M_STATE_KEY_REST_INTERVAL()] = signal.rest_interval()
         self.state[M_STATE_KEY_LAST_ACTION_TIME()] = unix_timestamp()
         
-    def _handle_signal_when_shopping(self, signal: MerchantSignal) -> None:
+    def _handle_signal_when_shopping(self, signal: MerchantSignal) -> bool:
         logging.debug(f"_handle_signal_when_shopping()")
         if signal.low_interval() == signal.high_interval():
             ### if low and high are the same, then we assume we're ok with just buying a single trading view alert
@@ -536,82 +537,88 @@ class Merchant:
             logging.warning(f"low and high are the same, going straight to buying")
             self._start_buying()
             self._handle_signal_when_buying(signal)
+            self._merchant_says(self.get_merchant_id(signal), f"Without confluence, I'm looking to buy {signal.contracts()} of {signal.ticker()}, will let you know when I make a purchase")
+            return True
         else:
             if signal.interval() == self.high_interval():
                 if signal.action() == S_ACTION_BUY():
                     self._start_buying()
-                
-    def _handle_signal_when_buying(self, signal: MerchantSignal) -> None:
-        self.log_debug(f"_handle_signal_when_buying()")
+                    self._merchant_says(self.get_merchant_id(signal), f"With confluence, I'm looking to buy {signal.contracts()} of {signal.ticker()}, will let you know when I make a purchase")
+                    return True
+        return False
+
+    def _handle_signal_when_buying(self, signal: MerchantSignal) -> bool:
+        logging.debug(f"_handle_signal_when_buying()")
         if signal.interval() == self.low_interval():
             if signal.action() == S_ACTION_BUY():
                 self._place_order(signal)
                 self._start_selling()
+                self._merchant_happily_says(self.get_merchant_id(signal), f"I'm looking to sell my {signal.ticker()}, because I made a purchase!")
+                return True
         elif signal.interval() == self.high_interval():
             if signal.action() == S_ACTION_SELL():
                 self._start_shopping()
-            
-    def _handle_signal_when_selling(self, signal: MerchantSignal) -> None:
+                self._merchant_says(self.get_merchant_id(signal), f"I'm going shopping - because the high_interval triggered a SELL signal - better safe than sorry")
+                return True
+        return False
+    
+    def _handle_signal_when_selling(self, signal: MerchantSignal) -> bool:
         ### what to do here? just allow tne take profits and stop loss to trigger
         ### at least for now. This will become useful later when we include bearish and bullish bias
-        self.log_debug(f"_handle_signal_when_selling()")
-        if signal.interval() == self.low_interval():
-            if signal.action() == S_ACTION_SELL():
+        logging.debug(f"_handle_signal_when_selling()")
+        if signal.action() == S_ACTION_SELL():
                 ## do nothing - allow take profit and stop loss to trigger
-                self._start_resting()
-        elif signal.interval() == self.high_interval():
-            if signal.action() == S_ACTION_SELL():
-                ## do nothing - allow take profit and stop loss to trigger
-                self._start_resting()
-                ###self.broker.sell_all_orders_for(signal.ticker())
-                ###self._start_shopping()
+            self._start_resting()
+            self._merchant_says(self.get_merchant_id(signal), f"Good night - I'm resting for {signal.rest_interval()} minutes")
+            return True
+        return False
 
-    def _handle_signal_when_resting(self) -> None:
-        self.log_debug(f"_handle_signal_when_resting()")
+    def _handle_signal_when_resting(self, signal: MerchantSignal) -> bool:
+        logging.debug(f"_handle_signal_when_resting()")
         now_timestamp_ms = unix_timestamp()
         rest_interval_ms = self.rest_interval_minutes() * 60 * 1000
         if (now_timestamp_ms > self.last_action_time() + rest_interval_ms):
             self._start_shopping()
+            self._merchant_happily_says(self.get_merchant_id(signal), "I'm going shopping - because I am done resting.")
         else:
             time_left_in_seconds = now_timestamp_ms - (self.last_action_time() + rest_interval_ms)
             time_left_in_seconds = time_left_in_seconds / 1000.0
-            self.log_info(f"Resting for another {time_left_in_seconds} seconds")
+            logging.info(f"Resting for another {time_left_in_seconds} seconds")
+            self._merchant_says(self.get_merchant_id(signal), f"I'm resting for another {time_left_in_seconds} seconds")
+        return True
 
     def _start_buying(self) -> None:
-        self.log_debug(f"_start_buying()")
+        logging.debug(f"_start_buying()")
         self.state[M_STATE_KEY_STATUS()] = M_STATE_BUYING()
         self.state[M_STATE_KEY_LAST_ACTION_TIME()] = unix_timestamp()
         self._sync_with_storage()
-        self.events_logger.log_notice(f"{self.merchant_id()} started buying")
 
     def _start_shopping(self) -> None:
-        self.log_debug(f"_start_shopping()")
+        logging.debug(f"_start_shopping()")
         self.state[M_STATE_KEY_STATUS()] = M_STATE_SHOPPING()
         self.state[M_STATE_KEY_LAST_ACTION_TIME()] = unix_timestamp()
         self._sync_with_storage()
-        self.events_logger.log_notice(f"{self.merchant_id()} started shopping")
 
     def _start_selling(self) -> None:
-        self.log_debug(f"_start_selling()")
+        logging.debug(f"_start_selling()")
         self.state[M_STATE_KEY_STATUS()] = M_STATE_SELLING()
         self.state[M_STATE_KEY_LAST_ACTION_TIME()] = unix_timestamp()
         self._sync_with_storage()
-        self.events_logger.log_notice(f"{self.merchant_id()} started selling")
 
     def _start_resting(self) -> None:
-        self.log_debug(f"_start_resting()")
+        logging.debug(f"_start_resting()")
         self.state[M_STATE_KEY_STATUS()] = M_STATE_RESTING()
         self.state[M_STATE_KEY_LAST_ACTION_TIME()] = unix_timestamp()
         self._sync_with_storage()
-        self.events_logger.log_notice(f"{self.merchant_id()} started resting")
 
     def _sync_with_storage(self) -> None:
-        self.log_debug(f"_sync_with_storage()")
+        logging.debug(f"_sync_with_storage()")
         client = self.table_service.get_table_client(table_name=self.TABLE_NAME)
+        logging.info(f"persisting the following state to storage: {self.state}")
         client.update_entity(entity=self.state)
 
     def _place_order(self, signal: MerchantSignal) -> None:
-        self.log_debug(f"_place_order()")
+        logging.debug(f"_place_order()")
 
         def calculate_take_profit(signal: MerchantSignal) -> float:
             return signal.close() + (signal.close() * signal.takeprofit_percent())
@@ -623,36 +630,33 @@ class Merchant:
             return signal.close() - (signal.close() * signal.suggested_stoploss())
 
         def safety_check(close, take_profit, stop_loss, quantity) -> None:
-            if signal.close() < signal.suggested_stoploss():
-                raise ValueError(f"Close price {signal.close()} is less than suggested stoploss {signal.suggested_stoploss()}")
-            if signal.close() > signal.takeprofit_percent():
-                raise ValueError(f"Close price {signal.close()} is greater than take profit {signal.suggested_stoploss()}")
+            if signal.close() < stop_loss:
+                raise ValueError(f"Close price {signal.close()} is less than suggested stoploss {stop_loss}")
+            if signal.close() > take_profit:
+                raise ValueError(f"Close price {signal.close()} is greater than take profit {take_profit}")
 
         take_profit = calculate_take_profit(signal)
         stop_loss = calculate_stop_loss(signal)
         quantity = signal.contracts()
         safety_check(signal.close(), take_profit, stop_loss, quantity)
-        self.events_logger.log_success(f"Placing order for {quantity} {signal.ticker()} at {signal.close()} with take profit {take_profit} and stop loss {stop_loss}")
+        self._merchant_happily_says(self.get_merchant_id(signal), f"Placing order for {quantity} {signal.ticker()} at {signal.close()} with take profit {take_profit} and stop loss {stop_loss}")
         self.broker.place_buy_market_order(signal.ticker(), quantity, take_profit, stop_loss)
-                
 
-    def _log_preamble(self) -> str:
-        return f"[{self.merchant_id()}, {self.state}, +{self.high_interval()}, -{self.low_interval()}]"
+    def _merchant_happily_says(self, merchant_id: str, message: str) -> None:
+        logging.debug(f"_merchant_happily_says()")
+        self.events_logger.log_success(f"{merchant_id} joyously says: Yay! - {message}")
 
-    def log_info(self, message) -> None:
-        logging.info(f"{self._log_preamble()} >> {message}")
-
-    def log_debug(self, message) -> None:
-        logging.debug(f"{self._log_preamble()} >> {message}")
+    def _merchant_sadly_says(self, merchant_id: str, message: str) -> None:
+        logging.debug(f"_merchant_sadly_says()")
+        self.events_logger.log_error(f"{merchant_id} says: Help! - {message}")
+    
+    def _merchant_says(self, merchant_id: str, message: str) -> None:
+        logging.debug(f"_merchant_says()")
+        self.events_logger.log_notice(f"{merchant_id} says: {message}")
 
     ## properties
-    def merchant_id(self) -> str:
-        ## this should come from tradingview
-        ticker = self.state.get(M_STATE_KEY_TICKER())
-        interval = self.state.get(M_STATE_KEY_LOW_INTERVAL())
-        if ticker is None or interval is None:
-            raise ValueError("ticker and/or interval not set")
-        return f"{ticker}-{interval}"
+    def get_merchant_id(self, signal: MerchantSignal) -> str:
+        return f"Robot-Number-{signal.ticker()}-{signal.low_interval()}-{signal.high_interval()}-{signal.version()}"
 
     def status(self) -> str:
         return self.state.get(M_STATE_KEY_STATUS())
@@ -728,7 +732,6 @@ class TestFlowMerchant(unittest.TestCase):
         assert flow_merchant.last_action_time() > 0
         assert flow_merchant.high_interval() == "1h"
         assert flow_merchant.low_interval() == "1m"
-        assert flow_merchant.merchant_id() == "AAPL-1m"
 
         second_signal_data = """
         {
