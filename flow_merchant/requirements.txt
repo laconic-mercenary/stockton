@@ -5,3 +5,5 @@
 azure-functions
 azure-storage-queue
 azure-data-tables
+ib_insync
+requests

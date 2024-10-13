@@ -24,4 +24,4 @@ az login
 #  --name $FUNCTION_NAME \
 #  --src fm.zip
 
-func azure functionapp publish ${FUNCTION_NAME} --build remote
+func azure functionapp publish ${FUNCTION_NAME} --build remote --python

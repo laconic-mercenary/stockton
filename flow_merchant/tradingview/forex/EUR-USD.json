@@ -1,0 +1,8 @@
+{
+    "action" : "buy",
+    "ticker" : "{{ticker}}",
+    "key" : "<<<STOCKTON_KEY>>>",
+    "notes" : "version=20241010;high={{high}};low={{low}};exchange={{exchange}};open={{open}};interval={{interval}};high_interval=1d;low_interval=1h;rest_interval_minutes=60;suggested_stoploss=0.011;takeprofit_percent=0.011",
+    "close" : {{close}},
+    "contracts" : 1000
+}
