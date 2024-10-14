@@ -38,12 +38,12 @@ def merchant_api(req: func.HttpRequest) -> func.HttpResponse:
                 event_logger = default_event_logger()
                 message_body = json.loads(body)
                 signal = MerchantSignal.parse(message_body)
-                event_logger.log_notice(f"received market signal: {body} - which is {signal.info()}")
+                event_logger.log_notice("Notice",f"received market signal: {body} - which is {signal.info()}")
                 merchant = Merchant(table_service, broker, event_logger)
                 merchant.handle_market_signal(signal)
         except Exception as e:
             logging.error(f"error handling market signal {body}, {e}", exc_info=True)
-            event_logger.log_error(f"error handling market signal {body}, {e}")
+            event_logger.log_error("Error", f"error handling market signal {body}, {e}")
                                     
 ##
 # Merchant Consumer
@@ -86,73 +86,69 @@ import datetime
 def DISCORD_ENV_WEBHOOK_URL():
     return "DISCORD_WEBHOOK_URL"
 
+def DISCORD_COLOR_GREEN():
+    return 3066993
+
+def DISCORD_COLOR_RED():
+    return 15158332
+
+def DISCORD_COLOR_BLUE():
+    return 3447003
+
 class EventLoggable(ABC):
     @abstractmethod
-    def log_notice(self, message):
+    def log_notice(self, title, message):
         pass
     @abstractmethod
-    def log_error(self, message):
+    def log_error(self, title, message):
         pass
     @abstractmethod
-    def log_success(self, message):
+    def log_success(self, title, message):
         pass
 
 class ConsoleLogger(EventLoggable):
-    def log_notice(self, message):
+    def log_notice(self, title, message):
         print(message)
-    def log_error(self, message):
+    def log_error(self, title, message):
         print(message)
-    def log_success(self, message):
+    def log_success(self, title, message):
         print(message)
 
 class DiscordClient(EventLoggable):
     def __init__(self):
         self.base_url = os.environ[DISCORD_ENV_WEBHOOK_URL()]
 
-    def log_notice(self, message):
-        message = {
-            "embeds": [
-                {
-                    "title": "Flow Merchant - NOTICE",
-                    "description": message,
-                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-                }
-            ]
-        }
-        self.send_message(message)
+    def log_notice(self, title, message):
+        self.send_message(title, message, DISCORD_COLOR_BLUE())
 
-    def log_error(self, message):
-        message = {
-            "embeds": [
-                {
-                    "title": "Flow Merchant - ERROR",
-                    "description": message,
-                    "color": 15158332,
-                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-                }
-            ]
-        }
-        self.send_message(message)
+    def log_error(self, title, message):
+        self.send_message(title, message, DISCORD_COLOR_RED())
 
-    def log_success(self, message):
-        message = {
-            "embeds": [
-                {
-                    "title": "Flow Merchant - SUCCESS",
-                    "description": message,
-                    "color": 3066993,
-                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-                }
-            ]
-        }
-        self.send_message(message)
+    def log_success(self, title, message):
+        self.send_message(title, message, DISCORD_COLOR_GREEN())
 
-    def send_message(self, message):
+    def send_message(self, title, message, color=DISCORD_COLOR_BLUE()):
         url = f"{self.base_url}"
+        if not color in [DISCORD_COLOR_GREEN(), DISCORD_COLOR_RED(), DISCORD_COLOR_BLUE()]:
+            color = DISCORD_COLOR_BLUE()
+        if title is None or len(title) == 0:
+            raise ValueError("title cannot be None")
+        if message is None or len(message) == 0:
+            raise ValueError("message cannot be None")
+        payload = {
+            "embeds": [
+                {
+                    "title": title,
+                    "description": message,
+                    "color": color,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                }
+            ]
+        }
         headers = {
             "Content-Type": "application/json"
         }
-        response = requests.post(url, headers=headers, json=message, timeout=7)
+        response = requests.post(url, headers=headers, json=payload, timeout=7)
         if response.status_code > 302:
             logging.error(f"Failed to send message: {response.text}")
 
@@ -472,7 +468,7 @@ class Merchant:
                 raise ValueError(f"Unknown state {self.status()}")
         finally:
             if not handled:
-                self._merchant_says(self.get_merchant_id(signal), f"Nothing for me to do, I'm in {self.state[M_STATE_KEY_STATUS()]} mode")
+                self._say(self.get_merchant_id(signal), f"Nothing for me to do, I'm in {self.state[M_STATE_KEY_STATUS()]} mode")
             logging.info(f"finished handling signal - id={signal.id()}")
     
     def load_state_from_storage(self, signal: MerchantSignal) -> None:
@@ -497,7 +493,7 @@ class Merchant:
                 logging.info(f"no open merchants found for {merchant_id}, creating new...")
                 self.state[M_STATE_KEY_STATUS()] = M_STATE_SHOPPING()
                 client.create_entity(entity=self.state)
-                self._merchant_happily_says(self.get_merchant_id(signal), f"I'm the new guy! Time to go shopping for {signal.ticker()}")
+                self._happily_say(self.get_merchant_id(signal), f"I'm the new guy! Time to go shopping for {signal.ticker()}")
 
     def load_config_from_env(self) -> None:
         """
@@ -537,13 +533,13 @@ class Merchant:
             logging.warning(f"low and high are the same, going straight to buying")
             self._start_buying()
             self._handle_signal_when_buying(signal)
-            self._merchant_says(self.get_merchant_id(signal), f"Without confluence, I'm looking to buy {signal.contracts()} of {signal.ticker()}, will let you know when I make a purchase")
+            self._say(self.get_merchant_id(signal), f"Without confluence, I'm looking to buy {signal.contracts()} of {signal.ticker()}, will let you know when I make a purchase")
             return True
         else:
             if signal.interval() == self.high_interval():
                 if signal.action() == S_ACTION_BUY():
                     self._start_buying()
-                    self._merchant_says(self.get_merchant_id(signal), f"With confluence, I'm looking to buy {signal.contracts()} of {signal.ticker()}, will let you know when I make a purchase")
+                    self._say(self.get_merchant_id(signal), f"With confluence, I'm looking to buy {signal.contracts()} of {signal.ticker()}, will let you know when I make a purchase")
                     return True
         return False
 
@@ -553,12 +549,12 @@ class Merchant:
             if signal.action() == S_ACTION_BUY():
                 self._place_order(signal)
                 self._start_selling()
-                self._merchant_happily_says(self.get_merchant_id(signal), f"I'm looking to sell my {signal.ticker()}, because I made a purchase!")
+                self._happily_say(self.get_merchant_id(signal), f"I'm looking to sell my {signal.ticker()}, because I made a purchase!")
                 return True
         elif signal.interval() == self.high_interval():
             if signal.action() == S_ACTION_SELL():
                 self._start_shopping()
-                self._merchant_says(self.get_merchant_id(signal), f"I'm going shopping - because the high_interval triggered a SELL signal - better safe than sorry")
+                self._say(self.get_merchant_id(signal), "I'm going shopping - because the high_interval triggered a SELL signal - better safe than sorry")
                 return True
         return False
     
@@ -567,9 +563,9 @@ class Merchant:
         ### at least for now. This will become useful later when we include bearish and bullish bias
         logging.debug(f"_handle_signal_when_selling()")
         if signal.action() == S_ACTION_SELL():
-                ## do nothing - allow take profit and stop loss to trigger
+            ## do nothing - allow take profit and stop loss to trigger
             self._start_resting()
-            self._merchant_says(self.get_merchant_id(signal), f"Good night - I'm resting for {signal.rest_interval()} minutes")
+            self._say(self.get_merchant_id(signal), f"Good night - I'm resting for {signal.rest_interval()} minutes")
             return True
         return False
 
@@ -579,12 +575,12 @@ class Merchant:
         rest_interval_ms = self.rest_interval_minutes() * 60 * 1000
         if (now_timestamp_ms > self.last_action_time() + rest_interval_ms):
             self._start_shopping()
-            self._merchant_happily_says(self.get_merchant_id(signal), "I'm going shopping - because I am done resting.")
+            self._happily_say(self.get_merchant_id(signal), "I'm going shopping - because I am done resting.")
         else:
             time_left_in_seconds = now_timestamp_ms - (self.last_action_time() + rest_interval_ms)
             time_left_in_seconds = time_left_in_seconds / 1000.0
             logging.info(f"Resting for another {time_left_in_seconds} seconds")
-            self._merchant_says(self.get_merchant_id(signal), f"I'm resting for another {time_left_in_seconds} seconds")
+            self._say(self.get_merchant_id(signal), f"I'm resting for another {time_left_in_seconds} seconds")
         return True
 
     def _start_buying(self) -> None:
@@ -639,24 +635,30 @@ class Merchant:
         stop_loss = calculate_stop_loss(signal)
         quantity = signal.contracts()
         safety_check(signal.close(), take_profit, stop_loss, quantity)
-        self._merchant_happily_says(self.get_merchant_id(signal), f"Placing order for {quantity} {signal.ticker()} at {signal.close()} with take profit {take_profit} and stop loss {stop_loss}")
+        self._happily_say(self.get_merchant_id(signal), f"Placing order for {quantity} {signal.ticker()} at {signal.close()} with take profit {take_profit} and stop loss {stop_loss}")
         self.broker.place_buy_market_order(signal.ticker(), quantity, take_profit, stop_loss)
 
-    def _merchant_happily_says(self, merchant_id: str, message: str) -> None:
-        logging.debug(f"_merchant_happily_says()")
-        self.events_logger.log_success(f"{merchant_id} joyously says: Yay! - {message}")
+    def _happily_say(self, merchant_id: str, message: str) -> None:
+        logging.debug(f"_happily_say()")
+        self._say(merchant_id, message, "happy")
 
-    def _merchant_sadly_says(self, merchant_id: str, message: str) -> None:
-        logging.debug(f"_merchant_sadly_says()")
-        self.events_logger.log_error(f"{merchant_id} says: Help! - {message}")
+    def _sadly_say(self, merchant_id: str, message: str) -> None:
+        logging.debug(f"_sadly_say()")
+        self._say(merchant_id, message, "sad")
     
-    def _merchant_says(self, merchant_id: str, message: str) -> None:
-        logging.debug(f"_merchant_says()")
-        self.events_logger.log_notice(f"{merchant_id} says: {message}")
+    def _say(self, merchant_id: str, message: str, emotion: str="normal") -> None:
+        logging.debug(f"_say()")
+        title  = f"Robot-#{merchant_id}"
+        if emotion == "happy":
+            self.events_logger.log_success(title, message)
+        elif emotion == "sad":
+            self.events_logger.log_error(title, message)
+        else:
+            self.events_logger.log_notice(title, message)
 
     ## properties
     def get_merchant_id(self, signal: MerchantSignal) -> str:
-        return f"Robot-Number-{signal.ticker()}-{signal.low_interval()}-{signal.high_interval()}-{signal.version()}"
+        return f"{signal.ticker()}-{signal.low_interval()}-{signal.high_interval()}-{signal.version()}"
 
     def status(self) -> str:
         return self.state.get(M_STATE_KEY_STATUS())
