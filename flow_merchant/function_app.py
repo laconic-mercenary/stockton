@@ -489,6 +489,8 @@ class Merchant:
                 self.state[M_STATE_KEY_STATUS()] = current_state
                 self.state[M_STATE_KEY_PARTITIONKEY()] = row[M_STATE_KEY_PARTITIONKEY()]
                 self.state[M_STATE_KEY_ROWKEY()] = row[M_STATE_KEY_ROWKEY()]
+                self.state[M_STATE_KEY_LAST_ACTION_TIME()] = row[M_STATE_KEY_LAST_ACTION_TIME()]
+                self.state[M_STATE_KEY_VERSION()] = row[M_STATE_KEY_VERSION()]
             else:
                 logging.info(f"no open merchants found for {merchant_id}, creating new...")
                 self.state[M_STATE_KEY_STATUS()] = M_STATE_SHOPPING()
@@ -512,7 +514,6 @@ class Merchant:
         self.state[M_STATE_KEY_ID()] = signal.id()
         self.state[M_STATE_KEY_MERCHANT_ID()] = self.get_merchant_id(signal)
         self.state[M_STATE_KEY_VERSION()] = signal.version()
-        self.state[M_STATE_KEY_ACTION()] = signal.action()
         self.state[M_STATE_KEY_TICKER()] = signal.ticker()
         self.state[M_STATE_KEY_CLOSE()] = signal.close()
         self.state[M_STATE_KEY_SUGGESTED_STOPLOSS()] = signal.suggested_stoploss()
