@@ -13,38 +13,58 @@ app = func.FunctionApp()
 # Merchant API
 ##
 
+def APP_ENV_APITOKEN():
+    return "MERCHANT_API_TOKEN"
+
+def APP_ENV_STORAGEACCTCS():
+    return "storageAccountConnectionString"
+
 @app.route(route="merchant_api", 
             auth_level=func.AuthLevel.ANONYMOUS)
 def merchant_api(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
+    is_valid, result = validate_req(req)
+    if not is_valid:
+        return result
+    try:
+        if req.method == "GET":
+            return handle_get(req)
+        elif req.method == "POST":
+            return handle_post(req)
+    except Exception as e:
+        logging.error(f"error handling market signal - {e}", exc_info=True)
+        default_event_logger().log_error("Error", f"error handling market signal, {e}")
+
+def validate_req(req: func.HttpRequest) -> tuple[bool, func.HttpResponse]:
     if req.method not in ["GET", "POST"]:
-        return func.HttpResponse(f"Invalid operation", status_code=405)
-    if req.method == "GET":
-        if 'health' in req.params:
-            return func.HttpResponse("OK", status_code=200)
-        with TableServiceClient.from_connection_string(os.environ['storageAccountConnectionString']) as table_service:
-            table_client = table_service.get_table_client(table_name="flowmerchant")
-            entities = table_client.list_entities()
-            rows = [dict(entity) for entity in entities]
-            return func.HttpResponse(json.dumps(rows), mimetype="application/json")
-    elif req.method == "POST":
-        body = req.get_body().decode('utf-8')
-        headers = dict(req.headers)
-        logging.info(f"received merchant signal: {body}")
-        logging.info(f"headers: {headers}")
-        try:
-            with TableServiceClient.from_connection_string(os.environ['storageAccountConnectionString']) as table_service:
-                broker = default_broker()
-                event_logger = default_event_logger()
-                message_body = json.loads(body)
-                signal = MerchantSignal.parse(message_body)
-                event_logger.log_notice("Notice",f"received market signal: {body} - which is {signal.info()}")
-                merchant = Merchant(table_service, broker, event_logger)
-                merchant.handle_market_signal(signal)
-        except Exception as e:
-            logging.error(f"error handling market signal {body}, {e}", exc_info=True)
-            event_logger.log_error("Error", f"error handling market signal {body}, {e}")
-                                    
+        return False, func.HttpResponse(f"Invalid operation", status_code=405)
+    return True, None
+    
+def handle_get(req: func.HttpRequest) -> func.HttpResponse:
+    if 'health' in req.params:
+        return func.HttpResponse("ok", status_code=200)
+    with TableServiceClient.from_connection_string(os.environ[APP_ENV_STORAGEACCTCS()]) as table_service:
+        table_client = table_service.get_table_client(table_name="flowmerchant")
+        entities = table_client.list_entities()
+        rows = [dict(entity) for entity in entities]
+        return func.HttpResponse(json.dumps(rows), mimetype="application/json")
+    
+def handle_post(req: func.HttpRequest) -> func.HttpResponse:
+    body = req.get_body().decode('utf-8')
+    headers = dict(req.headers)
+    logging.info(f"received merchant signal: {body}")
+    logging.info(f"headers: {headers}")
+    with TableServiceClient.from_connection_string(os.environ[APP_ENV_STORAGEACCTCS()]) as table_service:
+        message_body = json.loads(body)
+        signal = MerchantSignal.parse(message_body)
+        if signal.api_token() != os.environ[APP_ENV_APITOKEN()]:
+            return func.HttpResponse(f"Unauthorized", status_code=401)
+        event_logger = default_event_logger()
+        event_logger.log_notice("Notice",f"received market signal: {body} - which is {signal.info()}")
+        broker = default_broker()
+        merchant = Merchant(table_service, broker, event_logger)
+        merchant.handle_market_signal(signal)
+
 ##
 # Merchant Consumer
 ##
@@ -315,6 +335,9 @@ def S_ALERT_KEY_VERSION():
 def S_ALERT_REST_INTERVAL():
     return "rest_interval_minutes"
 
+def S_ALERT_API_TOKEN():
+    return "key"
+
 class MerchantSignal:
     def __init__(self, msg_body):
         if not msg_body:
@@ -393,6 +416,9 @@ class MerchantSignal:
 
     def version(self):
         return self.notes.get(S_ALERT_KEY_VERSION())
+    
+    def api_token(self):
+        return self.get(S_ALERT_API_TOKEN())
     
     def rest_interval(self):
         return self.notes.get(S_ALERT_REST_INTERVAL())
