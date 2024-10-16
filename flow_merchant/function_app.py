@@ -9,9 +9,12 @@ from azure.data.tables import TableServiceClient
 
 app = func.FunctionApp()
 
-##
-# Merchant API
-##
+#####################################
+#####################################
+### Merchant API
+#####################################
+#####################################
+
 
 def APP_ENV_APITOKEN():
     return "MERCHANT_API_TOKEN"
@@ -65,10 +68,6 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
         merchant = Merchant(table_service, broker, event_logger)
         merchant.handle_market_signal(signal)
 
-##
-# Merchant Consumer
-##
-
 # @app.function_name(name="merchant_consumer")
 # @app.queue_trigger(arg_name="msg", 
 #                     queue_name="merchantsignals",
@@ -89,15 +88,21 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
 #             logging.error(f"error handling market signal {body}, {e}", exc_info=True)
 #             event_logger.log_error(f"error handling market signal {body}, {e}")
         
-"""
-UTILS
-"""
+#####################################
+#####################################
+### UTILS
+#####################################
+#####################################
+
 def unix_timestamp() -> int:
     return int(time.time())
 
-"""
-DISCORD LOGGER
-"""
+#####################################
+#####################################
+### Event Logger
+#####################################
+#####################################
+
 
 from abc import ABC, abstractmethod
 import requests
@@ -175,9 +180,11 @@ class DiscordClient(EventLoggable):
 def default_event_logger() -> EventLoggable:
     return DiscordClient()
 
-"""
-BROKER
-"""
+#####################################
+#####################################
+### BROKER
+#####################################
+#####################################
 
 from abc import ABC, abstractmethod
 
@@ -186,16 +193,113 @@ class MarketOrderable(ABC):
     def place_buy_market_order(self, ticker: str, contracts: float, take_profit: float, stop_loss: float) -> None:
         pass
 
-class IBKRBroker(MarketOrderable):
-    def place_buy_market_order(self, ticker: str, contracts: float, take_profit: float, stop_loss: float) -> None:
-        logging.info(f"IBKRBroker.place_buy_market_order({ticker}, {contracts}, {take_profit}, {stop_loss})")
+def IBKR_SECURITY_MAP():
+    return {
+        "stock": "STK"
+    }
+
+def IBKR_ORDER_ALLOWED_PRIMARY_EXCHANGES():
+    return ["NASDAQ", "NYSE"]
+
+def IBKR_ORDER_ALLOWED_SECONDARY_EXCHANGES():
+    return ["SMART"]
+
+def IBKR_ALLOWED_SECURITY_TYPES():
+    return ["STK"]
+
+def IBKR_ENV_ORDER_CURRENCY():
+    return "IBKR_ORDER_CURRENCY"
+
+class IBKRClient(MarketOrderable):
+
+    def place_buy_market_order(self, merchant_id: str, version: str, ticker: str, security_type: str, exchange: str, contracts: float, take_profit: float, stop_loss: float) -> str:
+        contract  = self._new_contract(ticker, security_type, exchange)
+        market_order = self._new_market_order(contracts, buy=True)
+        take_profit_order = self._new_profit_order(contract, take_profit)
+        stop_loss_order = self._new_stop_loss_order(contract, stop_loss)
+        payload = {
+            "metadata": {
+                "merchantId": merchant_id,
+                "version": version,
+                "data": {
+                    "ticker": ticker,
+                    "securityType": security_type,
+                    "exchange": exchange,
+                    "contracts": contracts,
+                    "takeProfit": take_profit,
+                    "stopLoss": stop_loss
+                }
+            },
+            "ibkr" : {
+                "orders": {
+                    "mainOrder": market_order,
+                    "stopLossOrder" : stop_loss_order,
+                    "takeProfitOrder": take_profit_order
+                },
+                "contract": contract
+            }
+        }
+        return json.dumps(payload)
+        
+
+    def _new_contract(self, ticker: str, security_type: str, primary_exchange: str, secondary_exchange: str) -> dict:
+        if not primary_exchange in IBKR_ORDER_ALLOWED_PRIMARY_EXCHANGES():
+            raise ValueError(f"Invalid exchange: {primary_exchange}")
+        if not secondary_exchange in IBKR_ORDER_ALLOWED_SECONDARY_EXCHANGES():
+            raise ValueError(f"Invalid exchange: {secondary_exchange}")
+        if not security_type in IBKR_ALLOWED_SECURITY_TYPES():
+            raise ValueError(f"Invalid security type: {security_type}")
+        return { 
+            "symbol": ticker,
+            "secType": self._get_security_type(security_type),
+            "exchange": secondary_exchange,
+            "currency": self._cfg_order_currency(),
+            "primaryExchange": primary_exchange
+        }
+
+    def _new_market_order(self, quantity: float, buy: bool = True) -> dict:
+        return {
+            "action": "BUY" if buy else "SELL",
+            "orderType": "MKT",
+            "totalQuantity": quantity
+        }
+
+    def _new_profit_order(self, quantity: float, target_price: float) -> dict:
+        return {
+            "action": "SELL",
+            "orderType": "LMT",
+            "totalQuantity": quantity,
+            "lmtPrice": target_price
+        }
+
+    def _new_stop_loss_order(self, quantity: float, stop_price: float) -> dict:
+        return {
+            "action": "SELL",
+            "orderType": "STP",
+            "totalQuantity": quantity,
+            "auxPrice": stop_price
+        }
+        
+    def _get_security_type(self, sec_type: str) -> str:
+        security_types = IBKR_SECURITY_MAP()
+        if sec_type not in security_types:
+            raise ValueError(f"Invalid security type: {sec_type}")
+        return security_types[sec_type]
+
+    def _cfg_order_currency(self) -> str:
+        order_currency = os.environ[IBKR_ENV_ORDER_CURRENCY()]
+        if order_currency is None or len(order_currency) == 0:
+            raise ValueError(f"{IBKR_ENV_ORDER_CURRENCY()} cannot be None")
+        return order_currency
 
 def default_broker() -> MarketOrderable:
-    return IBKRBroker()
+    return IBKRClient()
 
-"""
-MERCHANT 
-"""
+#####################################
+#####################################
+### Merchant 
+#####################################
+#####################################
 
 def M_CFG_HIGH_INTERVAL():
     return "MERCHANT_HIGH_INTERVAL"
@@ -332,11 +436,17 @@ def S_ALERT_KEY_CONTRACTS():
 def S_ALERT_KEY_VERSION():
     return "ver"
 
-def S_ALERT_REST_INTERVAL():
+def S_ALERT_KEY_REST_INTERVAL():
     return "rest_interval_minutes"
 
-def S_ALERT_API_TOKEN():
+def S_ALERT_KEY_API_TOKEN():
     return "key"
+
+def S_ALERT_KEY_SECURITY_TYPE():
+    return "security_type"
+
+def S_ALERT_KEY_EXCHANGE():
+    return "exchange"
 
 class MerchantSignal:
     def __init__(self, msg_body):
@@ -418,10 +528,16 @@ class MerchantSignal:
         return self.notes.get(S_ALERT_KEY_VERSION())
     
     def api_token(self):
-        return self.get(S_ALERT_API_TOKEN())
+        return self.get(S_ALERT_KEY_API_TOKEN())
     
     def rest_interval(self):
-        return self.notes.get(S_ALERT_REST_INTERVAL())
+        return self.notes.get(S_ALERT_KEY_REST_INTERVAL())
+    
+    def security_type(self):
+        return self.notes.get(S_ALERT_KEY_SECURITY_TYPE())
+
+    def exchange(self):
+        return self.notes.get(S_ALERT_KEY_EXCHANGE())
 
     def id(self):
         return self._id
@@ -662,9 +778,9 @@ class Merchant:
         stop_loss = calculate_stop_loss(signal)
         quantity = signal.contracts()
         safety_check(signal.close(), take_profit, stop_loss, quantity)
-        self._happily_say(self.get_merchant_id(signal), f"Placing order for {quantity} {signal.ticker()} at {signal.close()} with take profit {take_profit} and stop loss {stop_loss}")
-        self.broker.place_buy_market_order(signal.ticker(), quantity, take_profit, stop_loss)
-
+        sent_payload = self.broker.place_buy_market_order(self.get_merchant_id(signal), signal.version(), signal.security_type(), signal.exchange(), signal.contracts(), take_profit, stop_loss)
+        self._happily_say(self.get_merchant_id(signal), f"Will send the following order info to the broker: {sent_payload}")
+        
     def _happily_say(self, merchant_id: str, message: str) -> None:
         logging.debug(f"_happily_say()")
         self._say(merchant_id, message, "happy")
@@ -706,6 +822,11 @@ class Merchant:
         ## this should come from merchant config
         return int(self.state.get(M_STATE_KEY_REST_INTERVAL()))
     
+#####################################
+#####################################
+### Tests
+#####################################
+#####################################
 
 import unittest
 from unittest.mock import Mock, patch

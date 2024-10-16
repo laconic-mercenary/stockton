@@ -1,0 +1,17 @@
+[Unit]
+Description=IBKR Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=flowmerchant
+WorkingDirectory=/usr/local/bin/ibkr_gateway
+ExecStart=/usr/bin/python3 /usr/local/bin/ibkr_gateway/main.py
+Restart=on-failure
+RestartSec=5s
+StandardOutput=append:/var/log/ibkr-gateway.log
+StandardError=append:/var/log/ibkr-gateway-error.log
+EnvironmentFile=/etc/ibkr_gateway/.env
+
+[Install]
+WantedBy=multi-user.target

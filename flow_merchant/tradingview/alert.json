@@ -1,32 +1,8 @@
 {
     "action" : "buy",
     "ticker" : "{{ticker}}",
-    "key" : "STOCKTON_KEY",
-    "notes" : "ver=20241010;high={{high}};low={{low}};exchange={{exchange}};open={{open}};interval={{interval}};high_interval=;low_interval=;suggested_stoploss=0.05;takeprofit_percent=0.05",
+    "key" : "yR4WnGvoC5po4IYNjipMzdHZ7jzw5eF",
+    "notes" : "ver=20241010;high={{high}};low={{low}};exchange={{exchange}};security_type=stock;open={{open}};interval={{interval}};high_interval=30;low_interval=5;suggested_stoploss=0.011;takeprofit_percent=0.011;rest_interval_minutes=180",
     "close" : {{close}},
-    "contracts" : 1
-}
-
-{
-    "action" : "sell",
-    "ticker" : "{{ticker}}",
-    "key" : "STOCKTON_KEY",
-    "exchange" : "{{exchange}}",
-    "version" : 20241010,
-    "price" : {
-        "close":  {{close}},
-        "high": {{high}},
-        "low": {{low}},
-        "open": {{open}},
-    },
-    "order": {
-        "contracts" : 1,
-        "stop_loss_percent" : 0.05,
-        "take_profit_percent" : 0.05,
-    },
-    "time_frame": {
-        "interval": "{{interval}}",
-        "high_interval": "1d",
-        "low_interval": "1h",
-    }
+    "contracts" : 1000
 }
