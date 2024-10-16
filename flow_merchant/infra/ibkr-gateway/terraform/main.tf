@@ -65,10 +65,6 @@ variable "env_IBKR_CLIENT_ID" {
   description = "The Account ID used to make trades that uses the IBKR API"
 }
 
-variable "env_IBKR_GATEWAY_PASSWORD" {
-  description = "The password or token used to auth API requests to the gateway - this is not the same as the IBKR API"
-}
-
 ##
 # digital ocean API token
 ##
@@ -82,7 +78,7 @@ provider "digitalocean" {
 ## 
 
 data "template_file" "ibkr_gateway_env" {
-  template = file("../etc/ibkr_gateway/.env.tpl")
+  template = file("${path.module}/../etc/ibkr_gateway/.env.tpl")
   vars = {
     ibkr_api_port = var.env_IBKR_API_PORT
     ibkr_api_client_id = var.env_IBKR_CLIENT_ID
@@ -95,11 +91,11 @@ data "template_file" "cloud_init_node" {
   vars = {
     ssh_pub_key = digitalocean_ssh_key.admin_user_key.public_key
     ibkr_gateway_env_file  = data.template_file.ibkr_gateway_env.rendered
-    ibkr_gateway_service_file = file("../etc/systemd/system/ibkr_gateway/ibkr-gateway.service")
-    ibkr_gateway_main_py = file("../python/main.py")
-    ibkr_gateway_requirements_txt = file("../python/requirements.txt")
-    ibkr_gateway_config_py = file("../python/config.py")
-    ibkr_gateway_server_py = file("../python/server.py")
+    ibkr_gateway_service_file = file("${path.module}/../etc/systemd/system/ibkr_gateway.service")
+    ibkr_gateway_main_py = file("${path.module}/../python/main.py")
+    ibkr_gateway_requirements_txt = file("${path.module}/../python/requirements.txt")
+    ibkr_gateway_config_py = file("${path.module}/../python/config.py")
+    ibkr_gateway_server_py = file("${path.module}/../python/server.py")
   }
 }
 
@@ -192,7 +188,7 @@ resource "digitalocean_loadbalancer" "public_node_nodes" {
 
     tls_passthrough = false
     
-    certificate_name = digitalocean_certificate.public_node_nodes.name
+    ### SSL certificate_name = digitalocean_certificate.public_node_nodes.name
   }
 
   healthcheck {
@@ -208,12 +204,13 @@ resource "digitalocean_loadbalancer" "public_node_nodes" {
   droplet_ids = [for droplet in digitalocean_droplet.node : droplet.id]
 }
 
-resource "digitalocean_certificate" "public_node_nodes" {
-  name              = "${var.do_environment}-${var.do_region}-gateway-node-lb-cert"
-  private_key       = file("~/.gateway-ssl-certs/private.key.pem")
-  leaf_certificate  = file("~/.gateway-ssl-certs/domain.cert.pem")
-  certificate_chain = file("~/.gateway-ssl-certs/intermediate.cert.pem")
-}
+### SSL
+# resource "digitalocean_certificate" "public_node_nodes" {
+#   name              = "${var.do_environment}-${var.do_region}-gateway-node-lb-cert"
+#   private_key       = file("~/.gateway-ssl-certs/private.key.pem")
+#   leaf_certificate  = file("~/.gateway-ssl-certs/domain.cert.pem")
+#   certificate_chain = file("~/.gateway-ssl-certs/intermediate.cert.pem")
+# }
 
 ##
 # outputs
