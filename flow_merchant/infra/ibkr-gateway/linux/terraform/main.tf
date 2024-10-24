@@ -41,11 +41,6 @@ variable "do_token" {
   description = "Digitalocean API token"
 }
 
-variable "do_domain" {
-  description = "Your public domain"
-  default = "revanchism.net"
-}
-
 variable "do_region" {
   default     = "ams3"
   description = "The Digitalocean region where the droplet will be created."
@@ -56,12 +51,22 @@ variable "ssh_key_admin_user" {
   description = "SSH key of the node user. This user has ability to sudo."
 }
 
+variable "env_IBKR_API_ADDR" {
+  default = "127.0.0.1"
+  description = "The address of the IBKR API"
+}
+
 variable "env_IBKR_API_PORT" {
-  default = 8080
+  default = 5000
   description = "Port for accessing the IBKR API"
 }
 
 variable "env_IBKR_CLIENT_ID" {
+  description = "The Account ID used to make trades that uses the IBKR API"
+  default = "123456"
+}
+
+variable "env_IBKR_API_ACCOUNT" {
   description = "The Account ID used to make trades that uses the IBKR API"
 }
 
@@ -80,8 +85,10 @@ provider "digitalocean" {
 data "template_file" "ibkr_gateway_env" {
   template = file("${path.module}/../etc/ibkr_gateway/.env.tpl")
   vars = {
+    ibkr_api_addr = var.env_IBKR_API_ADDR
     ibkr_api_port = var.env_IBKR_API_PORT
     ibkr_api_client_id = var.env_IBKR_CLIENT_ID
+    ibkr_api_account = var.env_IBKR_API_ACCOUNT
     ibkr_gateway_password = random_password.gateway_password.result
   }
 }
@@ -92,10 +99,13 @@ data "template_file" "cloud_init_node" {
     ssh_pub_key = digitalocean_ssh_key.admin_user_key.public_key
     ibkr_gateway_env_file  = data.template_file.ibkr_gateway_env.rendered
     ibkr_gateway_service_file = file("${path.module}/../etc/systemd/system/ibkr_gateway.service")
-    ibkr_gateway_main_py = file("${path.module}/../python/main.py")
-    ibkr_gateway_requirements_txt = file("${path.module}/../python/requirements.txt")
-    ibkr_gateway_config_py = file("${path.module}/../python/config.py")
-    ibkr_gateway_server_py = file("${path.module}/../python/server.py")
+    ibkr_gateway_main_py = file("${path.module}/../../python/main.py")
+    ibkr_gateway_requirements_txt = file("${path.module}/../../python/requirements.txt")
+    ibkr_gateway_config_py = file("${path.module}/../../python/config.py")
+    ibkr_gateway_server_py = file("${path.module}/../../python/server.py")
+    jre_install_script = file("${path.module}/../opt/ibkr_api/install-jre.sh")
+    ibkr_api_env_file = file("${path.module}/../opt/ibkr_api/.env")
+    ibkr_api_service_file = file("${path.module}/../etc/systemd/system/ibkr_api.service")
   }
 }
 
@@ -140,7 +150,7 @@ resource "digitalocean_firewall" "node_fw" {
   ## only loadbalancer can route through the proxy
   inbound_rule {
     protocol                    = "tcp"
-    port_range                  = "80"
+    port_range                  = "8080"
     source_load_balancer_uids   = [ digitalocean_loadbalancer.public_node_nodes.id ]
   }
 
@@ -153,7 +163,7 @@ resource "digitalocean_firewall" "node_fw" {
 
   outbound_rule {
     protocol              = "tcp"
-    port_range            = "53-443"
+    port_range            = "53-9999"
     destination_addresses = ["0.0.0.0/0", "::/0"]
   }
 
@@ -183,16 +193,16 @@ resource "digitalocean_loadbalancer" "public_node_nodes" {
     entry_port     = 443
     entry_protocol = "https"
 
-    target_port     = 80
+    target_port     = 8080
     target_protocol = "http"
 
     tls_passthrough = false
     
-    ### SSL certificate_name = digitalocean_certificate.public_node_nodes.name
+    certificate_name = digitalocean_certificate.public_node_nodes.name
   }
 
   healthcheck {
-    port     = 80
+    port     = 8080
     protocol = "http"
     path     = "/healthz"
     check_interval_seconds = 20
@@ -205,12 +215,12 @@ resource "digitalocean_loadbalancer" "public_node_nodes" {
 }
 
 ### SSL
-# resource "digitalocean_certificate" "public_node_nodes" {
-#   name              = "${var.do_environment}-${var.do_region}-gateway-node-lb-cert"
-#   private_key       = file("~/.gateway-ssl-certs/private.key.pem")
-#   leaf_certificate  = file("~/.gateway-ssl-certs/domain.cert.pem")
-#   certificate_chain = file("~/.gateway-ssl-certs/intermediate.cert.pem")
-# }
+resource "digitalocean_certificate" "public_node_nodes" {
+  name              = "${var.do_environment}-${var.do_region}-gateway-node-lb-cert"
+  private_key       = file("~/revanchist.net-ssl-bundle/private.key.pem")
+  leaf_certificate  = file("~/revanchist.net-ssl-bundle/domain.cert.pem")
+  certificate_chain = file("~/revanchist.net-ssl-bundle/intermediate.cert.pem")
+}
 
 ##
 # outputs

@@ -62,9 +62,13 @@ def handle_post(req: func.HttpRequest) -> func.HttpResponse:
         signal = MerchantSignal.parse(message_body)
         if signal.api_token() != os.environ[APP_ENV_APITOKEN()]:
             return func.HttpResponse(f"Unauthorized", status_code=401)
+        
         event_logger = default_event_logger()
         event_logger.log_notice("Notice",f"received market signal: {body} - which is {signal.info()}")
-        broker = default_broker()
+        
+        broker_repo = BrokerRepository()
+        broker = broker_repo.get_for_security(signal.security_type())
+        
         merchant = Merchant(table_service, broker, event_logger)
         merchant.handle_market_signal(signal)
 
@@ -190,110 +194,80 @@ from abc import ABC, abstractmethod
 
 class MarketOrderable(ABC):
     @abstractmethod
-    def place_buy_market_order(self, ticker: str, contracts: float, take_profit: float, stop_loss: float) -> None:
+    def place_buy_market_order(self, source: str, ticker: str, contracts: float, limit: float, take_profit: float, stop_loss: float) -> dict:
         pass
 
-def IBKR_SECURITY_MAP():
-    return {
-        "stock": "STK"
-    }
+    def create_event(self, type: str, source: str, ticker: str, contracts: float, limit: float, take_profit: float, stop_loss: float) -> dict:
+        attributes = {
+            "type": f"net.revanchist.flowmerchant.{type}",
+            "source": "/api/flow_merchant",
+            "id": f"{source}-{str(uuid.uuid4())}",
+            "datacontenttype": "application/json",
+            "subject": f"{source}"
+        }
+        payload = {
+            "orders": {
+                "market_order": {
+                    "ticker": ticker,
+                    "contracts": contracts,
+                    "limit_price": limit
+                },
+                "stop_loss_order" : {
+                    "stop_loss_price": stop_loss
+                },
+                "take_profit_order" : {
+                    "take_profit_price": take_profit
+                }
+            },
+            "additional_attributes" : {
 
-def IBKR_ORDER_ALLOWED_PRIMARY_EXCHANGES():
-    return ["NASDAQ", "NYSE"]
+            }
+        }
+        return { 
+            "metadata": attributes, 
+            "data": payload
+        }
 
-def IBKR_ORDER_ALLOWED_SECONDARY_EXCHANGES():
-    return ["SMART"]
+class BrokerRepository:
+    def __init__(self):
+        self.__repository = {
+            "stock": IBKRClient(),
+            "crypto": IBKRClient(),
+            "forex": None
+        }
 
-def IBKR_ALLOWED_SECURITY_TYPES():
-    return ["STK"]
-
-def IBKR_ENV_ORDER_CURRENCY():
-    return "IBKR_ORDER_CURRENCY"
+    def get_for_security(self, security_type: str) -> MarketOrderable:
+        if security_type not in self.__repository:
+            raise ValueError(f"security type {security_type} not supported")
+        return self.__repository[security_type]
+    
+def IBKR_ENV_GATEWAY_ENDPOINT():
+    return "IBKR_GATEWAY_ENDPOINT"
 
 class IBKRClient(MarketOrderable):
 
-    def place_buy_market_order(self, merchant_id: str, version: str, ticker: str, security_type: str, exchange: str, contracts: float, take_profit: float, stop_loss: float) -> str:
-        contract  = self._new_contract(ticker, security_type, exchange)
-        market_order = self._new_market_order(contracts, buy=True)
-        take_profit_order = self._new_profit_order(contract, take_profit)
-        stop_loss_order = self._new_stop_loss_order(contract, stop_loss)
-        payload = {
-            "metadata": {
-                "merchantId": merchant_id,
-                "version": version,
-                "data": {
-                    "ticker": ticker,
-                    "securityType": security_type,
-                    "exchange": exchange,
-                    "contracts": contracts,
-                    "takeProfit": take_profit,
-                    "stopLoss": stop_loss
-                }
-            },
-            "ibkr" : {
-                "orders": {
-                    "mainOrder": market_order,
-                    "stopLossOrder" : stop_loss_order,
-                    "takeProfitOrder": take_profit_order
-                },
-                "contract": contract
-            }
+    def place_buy_market_order(self, source: str, ticker: str, contracts: float, limit: float, take_profit: float, stop_loss: float) -> dict:
+        event = self.create_event(type="IBKROrder", source=source, ticker=ticker, contracts=contracts, limit=limit, take_profit=take_profit, stop_loss=stop_loss)
+        gateway_endpoint = self._cfg_gateway_endpoint()
+        headers = {
+            "Content-Type": "application/json",
+            "X-Gateway-Password": "test"
         }
-        return json.dumps(payload)
-        
-
-    def _new_contract(self, ticker: str, security_type: str, primary_exchange: str, secondary_exchange: str) -> dict:
-        if not primary_exchange in IBKR_ORDER_ALLOWED_PRIMARY_EXCHANGES():
-            raise ValueError(f"Invalid exchange: {primary_exchange}")
-        if not secondary_exchange in IBKR_ORDER_ALLOWED_SECONDARY_EXCHANGES():
-            raise ValueError(f"Invalid exchange: {secondary_exchange}")
-        if not security_type in IBKR_ALLOWED_SECURITY_TYPES():
-            raise ValueError(f"Invalid security type: {security_type}")
-        return { 
-            "symbol": ticker,
-            "secType": self._get_security_type(security_type),
-            "exchange": secondary_exchange,
-            "currency": self._cfg_order_currency(),
-            "primaryExchange": primary_exchange
-        }
-
-    def _new_market_order(self, quantity: float, buy: bool = True) -> dict:
+        response = requests.post(gateway_endpoint, headers=headers, data=event, timeout=7)
+        if response.status_code != 200:
+            logging.error(f"Failed to place IBKR order: {response.status_code} - {response.text}")
+            raise ValueError(f"Failed to place order: {response.text}")
         return {
-            "action": "BUY" if buy else "SELL",
-            "orderType": "MKT",
-            "totalQuantity": quantity
+            "status_code": response.status_code,
+            "response": response.text,
+            "source": "ibkr"
         }
-
-    def _new_profit_order(self, quantity: float, target_price: float) -> dict:
-        return {
-            "action": "SELL",
-            "orderType": "LMT",
-            "totalQuantity": quantity,
-            "lmtPrice": target_price
-        }
-
-    def _new_stop_loss_order(self, quantity: float, stop_price: float) -> dict:
-        return {
-            "action": "SELL",
-            "orderType": "STP",
-            "totalQuantity": quantity,
-            "auxPrice": stop_price
-        }
-        
-    def _get_security_type(self, sec_type: str) -> str:
-        security_types = IBKR_SECURITY_MAP()
-        if sec_type not in security_types:
-            raise ValueError(f"Invalid security type: {sec_type}")
-        return security_types[sec_type]
-
-    def _cfg_order_currency(self) -> str:
-        order_currency = os.environ[IBKR_ENV_ORDER_CURRENCY()]
-        if order_currency is None or len(order_currency) == 0:
-            raise ValueError(f"{IBKR_ENV_ORDER_CURRENCY()} cannot be None")
-        return order_currency
-
-def default_broker() -> MarketOrderable:
-    return IBKRClient()
+    
+    def _cfg_gateway_endpoint(self) -> str:
+        gateway_endpoint = os.environ[IBKR_ENV_GATEWAY_ENDPOINT()]
+        if gateway_endpoint is None or len(gateway_endpoint) == 0:
+            raise ValueError(f"{IBKR_ENV_GATEWAY_ENDPOINT()} cannot be None")
+        return gateway_endpoint
 
 #####################################
 #####################################
@@ -448,12 +422,18 @@ def S_ALERT_KEY_SECURITY_TYPE():
 def S_ALERT_KEY_EXCHANGE():
     return "exchange"
 
+import uuid
+import logging
+
 class MerchantSignal:
     def __init__(self, msg_body):
         if not msg_body:
             raise ValueError("Message body cannot be null")
         self.msg = msg_body
-        self.notes = self._parse_notes()
+        self.metadata = msg_body.get("metadata", {})
+        self.security = msg_body.get("security", {})
+        self.flowmerchant = msg_body.get("flowmerchant", {})
+        self.notes = msg_body.get("notes", "")
         self.TABLE_NAME = "flowmerchant"
         self._id = str(uuid.uuid4())
 
@@ -461,115 +441,157 @@ class MerchantSignal:
     def parse(msg_body):
         if not msg_body:
             raise ValueError("Message body cannot be null")
-        if S_ALERT_KEY_ACTION() not in msg_body:
-            logging.error(f"Action is null: {msg_body.get(S_ALERT_KEY_ACTION())}")
-            raise ValueError("Action cannot be null")
-        if msg_body[S_ALERT_KEY_ACTION()] not in [S_ACTION_BUY(), S_ACTION_SELL()]:
-            logging.error(f"Invalid action: {msg_body[S_ALERT_KEY_ACTION()]}")
+
+        # Validate metadata
+        metadata = msg_body.get("metadata")
+        if not metadata:
+            logging.error("Metadata is missing")
+            raise ValueError("Metadata is required")
+        if "key" not in metadata:
+            logging.error("API key is missing in metadata")
+            raise ValueError("API key is required in metadata")
+
+        # Validate security
+        security = msg_body.get("security")
+        if not security:
+            logging.error("Security information is missing")
+            raise ValueError("Security information is required")
+        required_security_keys = ["ticker", "exchange", "type", "contracts", "interval", "price"]
+        for key in required_security_keys:
+            if key not in security:
+                logging.error(f"Missing required security key: {key}")
+                raise ValueError(f"Missing required security key: {key}")
+
+        # Validate price
+        price = security.get("price")
+        if not price:
+            logging.error("Price information is missing in security")
+            raise ValueError("Price information is required in security")
+        required_price_keys = ["high", "low", "open", "close"]
+        for key in required_price_keys:
+            if key not in price:
+                logging.error(f"Missing required price key: {key}")
+                raise ValueError(f"Missing required price key: {key}")
+
+        # Validate flowmerchant
+        flowmerchant = msg_body.get("flowmerchant")
+        if not flowmerchant:
+            logging.error("Flowmerchant information is missing")
+            raise ValueError("Flowmerchant information is required")
+        required_flowmerchant_keys = ["suggested_stoploss", "takeprofit_percent", "rest_interval_minutes", "version", "action"]
+        for key in required_flowmerchant_keys:
+            if key not in flowmerchant:
+                logging.error(f"Missing required flowmerchant key: {key}")
+                raise ValueError(f"Missing required flowmerchant key: {key}")
+
+        # Validate action
+        if flowmerchant["action"] not in ["buy", "sell"]:
+            logging.error(f"Invalid action: {flowmerchant['action']}")
             raise ValueError("Invalid action")
-        if S_ALERT_KEY_TICKER() not in msg_body:
-            logging.error(f"Ticker is null: {msg_body.get(S_ALERT_KEY_TICKER())}")
-            raise ValueError("Ticker cannot be null")
-        if S_ALERT_KEY_CLOSE() not in msg_body:
-            logging.error(f"Close is null: {msg_body.get(S_ALERT_KEY_CLOSE())}")
-            raise ValueError("Close cannot be null")
-        if not isinstance(msg_body[S_ALERT_KEY_CLOSE()], float):
-            logging.error(f"Invalid close: {msg_body[S_ALERT_KEY_CLOSE()]}")
-            raise ValueError("Close must be a number")
-        if S_ALERT_KEY_NOTES() not in msg_body:
-            logging.error(f"Notes are null: {msg_body.get(S_ALERT_KEY_NOTES())}")
-            raise ValueError("Notes cannot be null")
-        if S_ALERT_KEY_CONTRACTS() not in msg_body:
-            logging.error(f"Contracts are null: {msg_body.get(S_ALERT_KEY_CONTRACTS())}")
-            raise ValueError("Contracts cannot be null")
-        if not isinstance(msg_body[S_ALERT_KEY_CONTRACTS()], int):
-            logging.error(f"Invalid contracts: {msg_body[S_ALERT_KEY_CONTRACTS()]}")
+
+        # Validate data types
+        try:
+            float(security["price"]["high"])
+            float(security["price"]["low"])
+            float(security["price"]["open"])
+            float(security["price"]["close"])
+        except ValueError as e:
+            logging.error(f"Price values must be numbers: {e}")
+            raise ValueError("Price values must be numbers")
+
+        if not isinstance(security["contracts"], int):
+            logging.error(f"Contracts must be an integer: {security['contracts']}")
             raise ValueError("Contracts must be an integer")
-        for notes_key in [S_ALERT_KEY_HIGH(), S_ALERT_KEY_LOW(), S_ALERT_KEY_SUGGESTED_STOPLOSS(), S_ALERT_KEY_TAKEPROFIT_PERCENT(), S_ALERT_KEY_HIGH_INTERVAL(), S_ALERT_KEY_LOW_INTERVAL(), S_ALERT_KEY_VERSION()]:
-            if notes_key not in msg_body[S_ALERT_KEY_NOTES()]:
-                logging.error(f"missing required notes entry: {notes_key}")
-                raise ValueError("Missing required notes entry for key: " + notes_key)
+
+        try:
+            float(flowmerchant["suggested_stoploss"])
+            float(flowmerchant["takeprofit_percent"])
+            int(flowmerchant["rest_interval_minutes"])
+            int(flowmerchant["version"])
+        except ValueError as e:
+            logging.error(f"Flowmerchant values must be numbers: {e}")
+            raise ValueError("Flowmerchant values must be numbers")
+
         return MerchantSignal(msg_body)
-    
-    def action(self):
-        return self.get(S_ALERT_KEY_ACTION())
-    
-    def ticker(self):
-        return self.get(S_ALERT_KEY_TICKER())
-    
-    def close(self):
-        return self.get(S_ALERT_KEY_CLOSE())
 
-    def interval(self):
-        return self.notes.get(S_ALERT_KEY_INTERVAL())
-    
-    def high_interval(self):
-        return self.notes.get(S_ALERT_KEY_HIGH_INTERVAL())
-    
-    def low_interval(self):
-        return self.notes.get(S_ALERT_KEY_LOW_INTERVAL())
-
-    def suggested_stoploss(self):
-        return self.notes.get(S_ALERT_KEY_SUGGESTED_STOPLOSS())
-    
-    def high(self):
-        return self.notes.get(S_ALERT_KEY_HIGH())
-    
-    def low(self):
-        return self.notes.get(S_ALERT_KEY_LOW())
-    
-    def takeprofit_percent(self):
-        return self.notes.get(S_ALERT_KEY_TAKEPROFIT_PERCENT())
-    
-    def contracts(self):
-        return self.get(S_ALERT_KEY_CONTRACTS())
-
-    def version(self):
-        return self.notes.get(S_ALERT_KEY_VERSION())
-    
+    # Accessor methods for metadata
     def api_token(self):
-        return self.get(S_ALERT_KEY_API_TOKEN())
-    
-    def rest_interval(self):
-        return self.notes.get(S_ALERT_KEY_REST_INTERVAL())
-    
-    def security_type(self):
-        return self.notes.get(S_ALERT_KEY_SECURITY_TYPE())
+        return self.metadata.get("key")
+
+    # Accessor methods for security
+    def ticker(self):
+        return self.security.get("ticker")
 
     def exchange(self):
-        return self.notes.get(S_ALERT_KEY_EXCHANGE())
+        return self.security.get("exchange")
+
+    def security_type(self):
+        return self.security.get("type")
+
+    def contracts(self):
+        return self.security.get("contracts")
+
+    def interval(self):
+        return self.security.get("interval")
+
+    def high(self):
+        return float(self.security["price"].get("high"))
+
+    def low(self):
+        return float(self.security["price"].get("low"))
+
+    def open(self):
+        return float(self.security["price"].get("open"))
+
+    def close(self):
+        return float(self.security["price"].get("close"))
+
+    # Accessor methods for flowmerchant
+    def suggested_stoploss(self):
+        return float(self.flowmerchant.get("suggested_stoploss"))
+
+    def takeprofit_percent(self):
+        return float(self.flowmerchant.get("takeprofit_percent"))
+
+    def rest_interval(self):
+        return int(self.flowmerchant.get("rest_interval_minutes"))
+
+    def version(self):
+        return int(self.flowmerchant.get("version"))
+
+    def action(self):
+        return self.flowmerchant.get("action")
+    
+    def low_interval(self):
+        return self.flowmerchant.get("low_interval")
+    
+    def high_interval(self):
+        return self.flowmerchant.get("high_interval")
+
+    def notes(self):
+        return self.notes
 
     def id(self):
         return self._id
 
-    def _parse_notes(self):
-        notes = self.get(S_ALERT_KEY_NOTES())
-        parsed_notes = {}
-        if notes:
-            pairs = notes.split(';')
-            for pair in pairs:
-                if '=' in pair:
-                    key, value = pair.split('=')
-                    key = key.strip()
-                    value = value.strip()
-                    if key in [S_ALERT_KEY_SUGGESTED_STOPLOSS(), S_ALERT_KEY_HIGH(),  S_ALERT_KEY_LOW(), S_ALERT_KEY_TAKEPROFIT_PERCENT()]:
-                        parsed_notes[key] = float(value)
-                    elif key in [S_ALERT_KEY_VERSION()]:
-                        parsed_notes[key] = int(value)
-                    else:
-                        parsed_notes[key] = value
-        return parsed_notes
-
     def __str__(self) -> str:
-        return f"action={self.action()}, ticker={self.ticker()}, close={self.close()}, interval={self.interval()}, high_interval={self.high_interval()}, low_interval={self.low_interval()}, suggested_stoploss={self.suggested_stoploss()}, high={self.high()}, low={self.low()}, takeprofit_percent={self.takeprofit_percent()}, contracts={self.contracts()}, version={self.version()}, rest_interval={self.rest_interval()}, id={self.id()}"
+        return (
+            f"action={self.action()}, "
+            f"ticker={self.ticker()}, "
+            f"close={self.close()}, "
+            f"interval={self.interval()}, "
+            f"suggested_stoploss={self.suggested_stoploss()}, "
+            f"high={self.high()}, "
+            f"low={self.low()}, "
+            f"takeprofit_percent={self.takeprofit_percent()}, "
+            f"contracts={self.contracts()}, "
+            f"version={self.version()}, "
+            f"rest_interval={self.rest_interval()}, "
+            f"id={self.id()}"
+        )
 
     def info(self) -> str:
         return str(self)
-
-    def get(self, key: str) -> any:
-        if key not in self.msg:
-            raise KeyError(f"Key '{key}' not found in message body")
-        return self.msg[key]
     
 ##
 # Merchant
@@ -774,12 +796,20 @@ class Merchant:
             if signal.close() > take_profit:
                 raise ValueError(f"Close price {signal.close()} is greater than take profit {take_profit}")
 
+        limit = signal.close()
         take_profit = calculate_take_profit(signal)
         stop_loss = calculate_stop_loss(signal)
         quantity = signal.contracts()
         safety_check(signal.close(), take_profit, stop_loss, quantity)
-        sent_payload = self.broker.place_buy_market_order(self.get_merchant_id(signal), signal.version(), signal.security_type(), signal.exchange(), signal.contracts(), take_profit, stop_loss)
-        self._happily_say(self.get_merchant_id(signal), f"Will send the following order info to the broker: {sent_payload}")
+        result = self.broker.place_buy_market_order(
+            source=self.get_merchant_id(signal), 
+            ticker=signal.ticker(), 
+            contracts=signal.contracts(),
+            limit=limit,
+            take_profit=take_profit, 
+            stop_loss=stop_loss
+        )
+        self._happily_say(self.get_merchant_id(signal), f"Will send the following order info to the broker: {result}")
         
     def _happily_say(self, merchant_id: str, message: str) -> None:
         logging.debug(f"_happily_say()")

@@ -1,0 +1,15 @@
+[Unit]
+Description=IBKR API
+After=network.target
+
+[Service]
+Type=simple
+User=flowmerchant
+WorkingDirectory=/opt/ibkr_api
+ExecStart=bash bin/run.sh root/conf.yaml
+Restart=on-failure
+RestartSec=15s
+EnvironmentFile=/opt/ibkr_api/.env
+
+[Install]
+WantedBy=multi-user.target

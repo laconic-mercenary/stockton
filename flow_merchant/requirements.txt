@@ -2,3 +2,4 @@ azure-functions
 azure-storage-queue
 azure-data-tables
 requests
+cloudevents

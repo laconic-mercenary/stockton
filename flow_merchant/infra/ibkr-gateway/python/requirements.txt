@@ -1,1 +1,4 @@
 ib_insync
+aiohttp
+geoip2
+nest_asyncio

@@ -1,8 +1,11 @@
-import asyncio
-import json
 import logging
-import urllib
 import config
+import ssl
+
+from aiohttp import web
+
+
+import geoip2.database
 
 from http.server import BaseHTTPRequestHandler
 from ib_insync import IB, Stock
@@ -13,122 +16,38 @@ def HEADER_CONTENT_TYPE():
 def HEADER_GATEWAY_PASSWORD():
     return "X-Gateway-Password"
 
-def create_request_handler(ib_api: IB, asyncio_loop: asyncio.AbstractEventLoop) -> type[BaseHTTPRequestHandler]:
+def response_not_found(text='not found') -> web.Response:
+    return web.Response(status=404, text=text)
 
-    class IBKRGatewayHandler(BaseHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            if ib_api is None:
-                raise ValueError("ib_api is required")
-            if asyncio_loop is None:
-                raise ValueError("asyncio_loop is required")
-            self.__ib_api = ib_api
-            self.__asyncio_loop = asyncio_loop
-            super().__init__(*args, **kwargs)
+def response_ok(text='ok') -> web.Response:
+    return web.Response(status=200, text=text)
 
-        def do_GET(self):
-            parsed_path = urllib.parse.urlparse(self.path)
-            path = parsed_path.path
-            if path == "/healthz":
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b"ok")
-            else:
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(b"not found")
+def response_json_ok(data: any) -> web.Response:
+    return web.json_response(data=data)
 
-        def do_POST(self):
-            parsed_path = urllib.parse.urlparse(self.path)
-            path = parsed_path.path
-            if path == "/orders":
-                self.__handle_place_order()
-            else:
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(b"Endpoint not found")
+def response_bad_request(text='bad request') -> web.Response:
+    return web.Response(status=400, text=text)
 
-        def __authorized(self) -> bool:
-            if HEADER_GATEWAY_PASSWORD() in self.headers:
-                client_password = self.headers.get(HEADER_GATEWAY_PASSWORD())
-                if client_password == config.gateway_password():
-                    logging.debug("request authorized")
-                    return True
-            return False
+def response_unauthorized(text='unauthorized') -> web.Response:
+    return web.Response(status=401, text=text)
 
-        def __handle_place_order(self):
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                logging.error("Invalid JSON data", exc_info=True)
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"bad request")
-                return
-            
-            if not self.__authorized():
-                self.send_response(401)
-                self.end_headers()
-                self.wfile.write(b"unauthorized")
-                return
+def response_server_err(text='server error') -> web.Response:
+    return web.Response(status=500, text=text)
 
-            future = asyncio.run_coroutine_threadsafe(
-                self.place_order(data), self.__asyncio_loop
-            )
-            try:
-                response = future.result()
-            except Exception as e:
-                logging.error(f"Error placing order {e}", exc_info=True)
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write("bad request")
-                return
-            
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(json.dumps(response).encode("utf-8"))
+def is_in_geofence(ip_address: str) -> bool:
+    if ip_address == "127.0.0.1" or ip_address == "localhost" or ip_address == "::1":
+        return True
+    with geoip2.database.Reader("/tmp/GeoLite2-City.mmdb") as reader:
+        response = reader.city(ip_address)
+        logging.debug(f"geoip2 response: {response}")
+        return response.country.iso_code.lower() == "jp"
+    
+def is_authorized(headers: dict[str, str]) -> bool:
+    if HEADER_GATEWAY_PASSWORD() in headers:
+        return headers[HEADER_GATEWAY_PASSWORD()] == config.gateway_password()
+    return False
 
-        async def place_order(self, data):
-            symbol = data.get("symbol")
-            action = data.get("action")
-            quantity = data.get("quantity")
-            take_profit = data.get("take_profit")
-            stop_loss = data.get("stop_loss")
-
-            if not all([symbol, action, quantity, take_profit, stop_loss]):
-                return {"status": "Missing parameters"}
-
-            contract = Stock(symbol, "SMART", "USD")
-
-            order = self.__ib_api.bracketOrder(
-                action,
-                quantity,
-                limitPrice=None,
-                takeProfitPrice=take_profit,
-                stopLossPrice=stop_loss
-            )
-
-            for o in order:
-                self.__ib_api.placeOrder(contract, o)
-
-            timeout = 10
-            try:
-                await asyncio.wait_for(
-                    self.wait_for_order_filled(order[0].orderId), timeout
-                )
-            except asyncio.TimeoutError:
-                return {"status": "Order placed, but no confirmation received within timeout"}
-
-            return {"status": "Order placed", "order_id": order[0].orderId}
-
-        async def wait_for_order_filled(self, orderId):
-            while True:
-                order = self.__ib_api.orders().get(orderId)
-                if order is None:
-                    break  # Order no longer exists
-                elif order.orderStatus.status in ("Filled", "Cancelled", "Inactive"):
-                    break
-                await asyncio.sleep(1.0)
-
-    return IBKRGatewayHandler
+def ssl_context() -> ssl.SSLContext:    
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(certfile=config.tls_cert_file(), keyfile=config.tls_key_file())
+    return ssl_context

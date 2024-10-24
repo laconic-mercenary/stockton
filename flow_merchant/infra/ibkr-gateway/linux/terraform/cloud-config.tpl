@@ -38,7 +38,15 @@ chmod 600 /home/$APPUSER/.ssh/authorized_keys
 chown -R $APPUSER:$APPGROUP /home/$APPUSER/.ssh
 
 ##
+# Disable needrestart
+##
+log "Disabling needrestart"
+echo "\$nrconf{restart} = 'a';" > /etc/needrestart/conf.d/99-restart.conf
+chmod 644 /etc/needrestart/conf.d/99-restart.conf
+
+##
 # Updates
+##
 apt-get update -y
 
 ##
@@ -49,23 +57,11 @@ apt install -y default-jre
 java -version
 
 ##
-# Install Python
-## 
-log "Installing Python"
-sudo apt install -y build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
-
-log "Getting Python 3.11.3"
-wget https://www.python.org/ftp/python/3.11.3/Python-3.11.3.tgz
-tar -xf Python-3.11.3.tgz
-cd Python-3.11.3
-
-log "Compiling Python 3.11.3"
-./configure --enable-optimizations
-make -j 12
-make altinstall
-
-log "Checking Python 3.11.3"
+# Check PYTHON
+##
+log "Checking Python 3"
 python3 --version
+apt install -y python3-pip
 
 ##
 # Install gateway
@@ -91,11 +87,63 @@ echo '${ibkr_gateway_config_py}' > /usr/local/bin/ibkr_gateway/config.py
 echo '${ibkr_gateway_requirements_txt}' > /usr/local/bin/ibkr_gateway/requirements.txt
 chown -R $APPUSER:$APPGROUP /usr/local/bin/ibkr_gateway
 chmod 755 /usr/local/bin/ibkr_gateway/*
+cd /usr/local/bin/ibkr_gateway
+pip3 install -r requirements.txt
+
+
+##
+# Install necessary utils for clientprotal API
+## 
+log "Installing necessary utils for clientportal API"
+apt install -y unzip
+apt install -y jq
+wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+chmod a+x /usr/local/bin/yq
+
+jq --version
+yq  --version
+
+log "Installing IBKR API"
+mkdir -p /opt/ibkr_api
+chmod 744 /opt/ibkr_api
+echo '${ibkr_api_env_file}' > /opt/ibkr_api/.env
+
+log "Downloading ibkr api"
+wget https://download2.interactivebrokers.com/installers/ibgateway/stable-standalone/ibgateway-stable-standalone-linux-x64.sh
+chmod +x ibgateway-stable-standalone-linux-x64.sh
+
+log "Running - Installing IBKR API"
+./ibgateway-stable-standalone-linux-x64.sh
+
+log "Creating log directory"
+mkdir -p /opt/ibkr_api/logs
+chmod 777 /opt/ibkr_api/logs
+
+chown -R $APPUSER:$APPGROUP /opt/ibkr_api
+
+##
+# Turn off SSL
+##
+log "Disabling SSL for ibkr api"
+yq eval '.listenSsl = false' -i /opt/ibkr_api/root/conf.yaml
+
+log "Creating ibkr api service file"
+echo '${ibkr_api_service_file}' > /etc/systemd/system/ibkr_api.service
+chmod 644 /etc/systemd/system/ibkr_api.service
+
+log "Reloading systemd daemon"
+systemctl daemon-reload
+
+log "Enabling ibkr api service"
+systemctl enable ibkr_api.service
+systemctl start ibkr_api.service
+
+## let the api start so that the gateway can connect to it
+sleep 5
 
 log "Enabling gateway service"
-systemctl daemon-reload
 systemctl enable ibkr_gateway.service
-systemctl start myapp.service
+systemctl start ibkr_gateway.service
 
 ##
 # digital ocean has a bug that causes systemd-journald to fail to start
@@ -103,9 +151,5 @@ systemctl start myapp.service
 log "Restarting systemd-journald service"
 systemctl restart systemd-journald.service
 journalctl --verify
-
-log "Disabling needrestart"
-echo "\$nrconf{restart} = 'a';" > /etc/needrestart/conf.d/99-restart.conf
-chmod 644 /etc/needrestart/conf.d/99-restart.conf
 
 log "Installation process completed"
